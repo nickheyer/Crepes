@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Asset Gallery - Web Scraper</title>
+	<link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+	<script src="https://cdn.jsdelivr.net/npm/alpinejs@3.10.2/dist/cdn.min.js" defer></script>
+</head>
+
+<body class="bg-gray-900 text-white" x-data="{ 
+		assets: [],
+		jobs: [],
+		loading: true,
+		view: 'grid',
+		filters: {
+			type: '',
+			search: '',
+			jobId: ''
+		},
+		sortBy: 'date',
+		sortDir: 'desc',
+		expandedAsset: null,
+		
+		init() {
+			this.fetchJobs().then(() => {
+				this.fetchAssets();
+			});
+		},
+		
+		fetchJobs() {
+			return fetch('/api/jobs')
+				.then(response => response.json())
+				.then(data => {
+					this.jobs = data;
+				})
+				.catch(error => {
+					console.error('Error fetching jobs:', error);
+					this.jobs = [];
+				});
+		},
+		
+		fetchAssets() {
+			this.loading = true;
+			
+			// Build query string from filters
+			const params = new URLSearchParams();
+			if (this.filters.type) params.append('type', this.filters.type);
+			if (this.filters.search) params.append('search', this.filters.search);
+			if (this.filters.jobId) params.append('jobId', this.filters.jobId);
+			
+			fetch('/api/assets?' + params.toString())
+				.then(response => response.json())
+				.then(data => {
+					this.assets = data;
+					this.sortAssets();
+					this.loading = false;
+				})
+				.catch(error => {
+					console.error('Error fetching assets:', error);
+					this.assets = [];
+					this.loading = false;
+				});
+		},
+		
+		sortAssets() {
+			const dir = this.sortDir === 'asc' ? 1 : -1;
+			
+			this.assets.sort((a, b) => {
+				if (this.sortBy === 'date') {
+					const dateA = a.date ? new Date(a.date) : new Date(0);
+					const dateB = b.date ? new Date(b.date) : new Date(0);
+					return (dateA - dateB) * dir;
+				} else if (this.sortBy === 'title') {
+					return (a.title || '').localeCompare(b.title || '') * dir;
+				} else if (this.sortBy === 'type') {
+					return (a.type || '').localeCompare(b.type || '') * dir;
+				} else if (this.sortBy === 'size') {
+					return (a.size - b.size) * dir;
+				}
+				return 0;
+			});
+		},
+		
+		changeSort(field) {
+			if (this.sortBy === field) {
+				this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+			} else {
+				this.sortBy = field;
+				this.sortDir = 'desc';
+			}
+			this.sortAssets();
+		},
+		
+		resetFilters() {
+			this.filters = {
+				type: '',
+				search: '',
+				jobId: ''
+			};
+			this.fetchAssets();
+		},
+		
+		applyFilters() {
+			this.fetchAssets();
+		},
+		
+		formatSize(bytes) {
+			if (!bytes) return 'Unknown';
+			const sizes = ['B', 'KB', 'MB', 'GB'];
+			const i = Math.floor(Math.log(bytes) / Math.log(1024));
+			return (bytes / Math.pow(1024, i)).toFixed(2) + ' ' + sizes[i];
+		},
+		
+		formatDate(dateString) {
+			if (!dateString) return 'Unknown';
+			return new Date(dateString).toLocaleString();
+		},
+		
+		getAssetIcon(type) {
+			const icons = {
+				'video': '🎬',
+				'image': '🖼️',
+				'audio': '🔊',
+				'document': '📄',
+				'unknown': '❓'
+			};
+			return icons[type] || icons['unknown'];
+		},
+		
+		getAssetUrl(asset) {
+			return '/assets/' + asset.localPath;
+		},
+		
+		getThumbnailUrl(asset) {
+			return asset.thumbnailPath ? '/thumbnails/' + asset.thumbnailPath : '/static/icons/generic.jpg';
+		},
+		
+		openAsset(asset) {
+			if (asset.type === 'video' || asset.type === 'audio' || asset.type === 'image') {
+				window.open(this.getAssetUrl(asset), '_blank');
+			} else {
+				const link = document.createElement('a');
+				link.href = this.getAssetUrl(asset);
+				link.download = asset.title || 'download';
+				link.click();
+			}
+		},
+		
+		deleteAsset(asset) {
+			if (!confirm('Are you sure you want to delete this asset?')) return;
+			
+			fetch('/api/assets/' + asset.id, { method: 'DELETE' })
+				.then(response => {
+					if (!response.ok) throw new Error('Failed to delete asset');
+					return response.json();
+				})
+				.then(() => {
+					this.assets = this.assets.filter(a => a.id !== asset.id);
+				})
+				.catch(error => {
+					console.error('Error deleting asset:', error);
+					alert('Failed to delete asset: ' + error.message);
+				});
+		},
+		
+		regenerateThumbnail(asset) {
+			fetch('/api/assets/' + asset.id + '/regenerate-thumbnail', { method: 'POST' })
+				.then(response => {
+					if (!response.ok) throw new Error('Failed to regenerate thumbnail');
+					return response.json();
+				})
+				.then(data => {
+					// Update asset in the list
+					const index = this.assets.findIndex(a => a.id === asset.id);
+					if (index >= 0) {
+						this.assets[index].thumbnailPath = data.thumbnailPath;
+					}
+					
+					// If it's the expanded asset, update that too
+					if (this.expandedAsset && this.expandedAsset.id === asset.id) {
+						this.expandedAsset.thumbnailPath = data.thumbnailPath;
+					}
+				})
+				.catch(error => {
+					console.error('Error regenerating thumbnail:', error);
+					alert('Failed to regenerate thumbnail: ' + error.message);
+				});
+		},
+		
+		expandAsset(asset) {
+			this.expandedAsset = asset;
+		},
+		
+		getJobName(jobId) {
+			const job = this.jobs.find(j => j.id === jobId);
+			return job ? job.baseUrl : 'Unknown Job';
+		}
+	}">
+
+	<!-- Header -->
+	<header class="bg-gray-800 shadow">
+		<div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
+			<div class="flex items-center">
+				<a href="/" class="text-indigo-400 hover:text-indigo-300 mr-4">
+					&larr; Back
+				</a>
+				<h1 class="text-3xl font-bold">Asset Gallery</h1>
+			</div>
+			<div class="flex space-x-3">
+				<button @click="view = 'grid'" class="px-3 py-1 rounded-md"
+					:class="view === 'grid' ? 'bg-indigo-600' : 'bg-gray-700'">
+					Grid View
+				</button>
+				<button @click="view = 'table'" class="px-3 py-1 rounded-md"
+					:class="view === 'table' ? 'bg-indigo-600' : 'bg-gray-700'">
+					Table View
+				</button>
+			</div>
+		</div>
+	</header>
+
+	<!-- Main content -->
+	<main class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+		<!-- Filters -->
+		<div class="bg-gray-800 shadow rounded-lg p-6 mb-6">
+			<div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+				<div>
+					<label class="block text-sm font-medium mb-1">Asset Type</label>
+					<select x-model="filters.type"
+						class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md">
+						<option value="">All Types</option>
+						<option value="image">Images</option>
+						<option value="video">Videos</option>
+						<option value="audio">Audio</option>
+						<option value="document">Documents</option>
+					</select>
+				</div>
+				<div>
+					<label class="block text-sm font-medium mb-1">Job</label>
+					<select x-model="filters.jobId"
+						class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md">
+						<option value="">All Jobs</option>
+						<template x-for="job in jobs" :key="job.id">
+							<option :value="job.id" x-text="job.baseUrl"></option>
+						</template>
+					</select>
+				</div>
+				<div>
+					<label class="block text-sm font-medium mb-1">Search</label>
+					<input type="text" x-model="filters.search" placeholder="Search by title or description"
+						class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md">
+				</div>
+				<div class="flex items-end">
+					<div class="flex space-x-2">
+						<button @click="applyFilters()" class="px-4 py-2 bg-indigo-600 rounded-md hover:bg-indigo-700">
+							Apply
+						</button>
+						<button @click="resetFilters()" class="px-4 py-2 bg-gray-600 rounded-md hover:bg-gray-700">
+							Reset
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Loading Indicator -->
+		<div x-show="loading" class="flex justify-center my-12">
+			<div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
+		</div>
+
+		<!-- Grid View -->
+		<div x-show="!loading && view === 'grid'" class="space-y-6">
+			<div class="flex justify-between items-center">
+				<h2 class="text-xl font-semibold">Assets (<span x-text="assets.length"></span>)</h2>
+				<div class="flex items-center space-x-2">
+					<span class="text-sm">Sort by:</span>
+					<button @click="changeSort('date')" class="px-2 py-1 text-sm rounded"
+						:class="sortBy === 'date' ? 'bg-indigo-600' : 'bg-gray-700'">
+						Date <span x-show="sortBy === 'date'" x-text="sortDir === 'asc' ? '↑' : '↓'"></span>
+					</button>
+					<button @click="changeSort('title')" class="px-2 py-1 text-sm rounded"
+						:class="sortBy === 'title' ? 'bg-indigo-600' : 'bg-gray-700'">
+						Title <span x-show="sortBy === 'title'" x-text="sortDir === 'asc' ? '↑' : '↓'"></span>
+					</button>
+					<button @click="changeSort('type')" class="px-2 py-1 text-sm rounded"
+						:class="sortBy === 'type' ? 'bg-indigo-600' : 'bg-gray-700'">
+						Type <span x-show="sortBy === 'type'" x-text="sortDir === 'asc' ? '↑' : '↓'"></span>
+					</button>
+					<button @click="changeSort('size')" class="px-2 py-1 text-sm rounded"
+						:class="sortBy === 'size' ? 'bg-indigo-600' : 'bg-gray-700'">
+						Size <span x-show="sortBy === 'size'" x-text="sortDir === 'asc' ? '↑' : '↓'"></span>
+					</button>
+				</div>
+			</div>
+
+			<div x-show="assets.length === 0" class="bg-gray-800 rounded-lg shadow p-6 text-center text-gray-400">
+				No assets found matching the current filters.
+			</div>
+
+			<div x-show="assets.length > 0" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+				<template x-for="asset in assets" :key="asset.id">
+					<div class="bg-gray-800 rounded-lg shadow overflow-hidden">
+						<div class="h-48 bg-gray-700 overflow-hidden relative cursor-pointer"
+							@click="expandAsset(asset)">
+							<img :src="getThumbnailUrl(asset)" class="w-full h-full object-cover">
+							<span
+								class="absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-bold bg-gray-900 text-white"
+								x-text="getAssetIcon(asset.type) + ' ' + asset.type"></span>
+						</div>
+						<div class="p-4">
+							<h3 class="font-medium text-lg truncate" x-text="asset.title || 'Untitled'"></h3>
+							<p class="text-gray-400 text-sm truncate" x-text="asset.description || 'No description'">
+							</p>
+							<div class="mt-2 text-sm text-gray-400" x-text="'From: ' + getJobName(asset.jobId)"></div>
+							<div class="mt-3 flex justify-between text-sm">
+								<span class="text-gray-400" x-text="formatSize(asset.size)"></span>
+								<div class="flex space-x-2">
+									<button @click="openAsset(asset)" class="text-indigo-400 hover:text-indigo-300">
+										View
+									</button>
+									<button @click="regenerateThumbnail(asset)"
+										class="text-yellow-400 hover:text-yellow-300">
+										Regen
+									</button>
+									<button @click="deleteAsset(asset)" class="text-red-400 hover:text-red-300">
+										Delete
+									</button>
+								</div>
+							</div>
+						</div>
+					</div>
+				</template>
+			</div>
+		</div>
+
+		<!-- Table View -->
+		<div x-show="!loading && view === 'table'" class="space-y-6">
+			<div class="flex justify-between items-center">
+				<h2 class="text-xl font-semibold">Assets (<span x-text="assets.length"></span>)</h2>
+			</div>
+
+			<div x-show="assets.length === 0" class="bg-gray-800 rounded-lg shadow p-6 text-center text-gray-400">
+				No assets found matching the current filters.
+			</div>
+
+			<div x-show="assets.length > 0" class="bg-gray-800 rounded-lg overflow-hidden shadow">
+				<div class="overflow-x-auto">
+					<table class="min-w-full divide-y divide-gray-700">
+						<thead>
+							<tr>
+								<th class="px-6 py-3 bg-gray-700 text-left text-xs font-medium uppercase tracking-wider cursor-pointer"
+									@click="changeSort('type')">
+									Type
+									<span x-show="sortBy === 'type'" x-text="sortDir === 'asc' ? '↑' : '↓'"></span>
+								</th>
+								<th class="px-6 py-3 bg-gray-700 text-left text-xs font-medium uppercase tracking-wider cursor-pointer"
+									@click="changeSort('title')">
+									Title
+									<span x-show="sortBy === 'title'" x-text="sortDir === 'asc' ? '↑' : '↓'"></span>
+								</th>
+								<th class="px-6 py-3 bg-gray-700 text-left text-xs font-medium uppercase tracking-wider cursor-pointer"
+									@click="changeSort('date')">
+									Date
+									<span x-show="sortBy === 'date'" x-text="sortDir === 'asc' ? '↑' : '↓'"></span>
+								</th>
+								<th class="px-6 py-3 bg-gray-700 text-left text-xs font-medium uppercase tracking-wider cursor-pointer"
+									@click="changeSort('size')">
+									Size
+									<span x-show="sortBy === 'size'" x-text="sortDir === 'asc' ? '↑' : '↓'"></span>
+								</th>
+								<th
+									class="px-6 py-3 bg-gray-700 text-left text-xs font-medium uppercase tracking-wider">
+									Source
+								</th>
+								<th
+									class="px-6 py-3 bg-gray-700 text-right text-xs font-medium uppercase tracking-wider">
+									Actions
+								</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-gray-700">
+							<template x-for="asset in assets" :key="asset.id">
+								<tr class="hover:bg-gray-700">
+									<td class="px-6 py-4 whitespace-nowrap">
+										<div class="flex items-center">
+											<span class="mr-2" x-text="getAssetIcon(asset.type)"></span>
+											<span x-text="asset.type"></span>
+										</div>
+									</td>
+									<td class="px-6 py-4">
+										<div class="line-clamp-2" x-text="asset.title || 'Untitled'"></div>
+									</td>
+									<td class="px-6 py-4 whitespace-nowrap"
+										x-text="asset.date ? formatDate(asset.date) : 'Unknown'"></td>
+									<td class="px-6 py-4 whitespace-nowrap" x-text="formatSize(asset.size)"></td>
+									<td class="px-6 py-4 whitespace-nowrap" x-text="getJobName(asset.jobId)"></td>
+									<td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+										<button @click="expandAsset(asset)"
+											class="text-indigo-400 hover:text-indigo-300 mr-3">
+											Details
+										</button>
+										<button @click="openAsset(asset)"
+											class="text-indigo-400 hover:text-indigo-300 mr-3">
+											View
+										</button>
+										<button @click="deleteAsset(asset)" class="text-red-400 hover:text-red-300">
+											Delete
+										</button>
+									</td>
+								</tr>
+							</template>
+						</tbody>
+					</table>
+				</div>
+			</div>
+		</div>
+	</main>
+
+	<!-- Asset Detail Modal -->
+	<div x-show="expandedAsset !== null"
+		class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+		<div class="bg-gray-800 rounded-lg max-w-4xl w-full max-h-screen overflow-y-auto"
+			@click.away="expandedAsset = null">
+			<div class="px-6 py-4 border-b border-gray-700 flex justify-between items-center">
+				<h3 class="text-lg font-medium">Asset Details</h3>
+				<button @click="expandedAsset = null" class="text-gray-400 hover:text-white">
+					&times;
+				</button>
+			</div>
+			<div class="p-6">
+				<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+					<div>
+						<div class="bg-gray-700 rounded-lg overflow-hidden mb-4">
+							<img :src="getThumbnailUrl(expandedAsset)" class="w-full h-64 object-contain">
+						</div>
+						<div class="flex space-x-2 mb-4">
+							<button @click="openAsset(expandedAsset)"
+								class="px-4 py-2 bg-indigo-600 rounded-md hover:bg-indigo-700 flex-1">
+								View
+							</button>
+							<button @click="regenerateThumbnail(expandedAsset)"
+								class="px-4 py-2 bg-yellow-600 rounded-md hover:bg-yellow-700 flex-1">
+								Regenerate Thumbnail
+							</button>
+							<button @click="deleteAsset(expandedAsset); expandedAsset = null;"
+								class="px-4 py-2 bg-red-600 rounded-md hover:bg-red-700 flex-1">
+								Delete
+							</button>
+						</div>
+					</div>
+					<div class="space-y-4">
+						<div>
+							<h4 class="text-sm font-medium text-gray-400">Title</h4>
+							<p class="mt-1" x-text="expandedAsset?.title || 'Untitled'"></p>
+						</div>
+						<div>
+							<h4 class="text-sm font-medium text-gray-400">Description</h4>
+							<p class="mt-1" x-text="expandedAsset?.description || 'No description'"></p>
+						</div>
+						<div>
+							<h4 class="text-sm font-medium text-gray-400">Type</h4>
+							<p class="mt-1" x-text="expandedAsset?.type"></p>
+						</div>
+						<div>
+							<h4 class="text-sm font-medium text-gray-400">Size</h4>
+							<p class="mt-1" x-text="formatSize(expandedAsset?.size)"></p>
+						</div>
+						<div>
+							<h4 class="text-sm font-medium text-gray-400">Source URL</h4>
+							<p class="mt-1 break-all">
+								<a :href="expandedAsset?.url" target="_blank"
+									class="text-indigo-400 hover:text-indigo-300" x-text="expandedAsset?.url"></a>
+							</p>
+						</div>
+						<div>
+							<h4 class="text-sm font-medium text-gray-400">From Job</h4>
+							<p class="mt-1" x-text="getJobName(expandedAsset?.jobId)"></p>
+						</div>
+						<div>
+							<h4 class="text-sm font-medium text-gray-400">Author</h4>
+							<p class="mt-1" x-text="expandedAsset?.author || 'Unknown'"></p>
+						</div>
+						<div>
+							<h4 class="text-sm font-medium text-gray-400">Date</h4>
+							<p class="mt-1" x-text="expandedAsset?.date ? formatDate(expandedAsset.date) : 'Unknown'">
+							</p>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</body>
+
+</html>
