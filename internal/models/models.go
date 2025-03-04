@@ -21,12 +21,19 @@ type ScrapingJob struct {
 	CancelFunc          context.CancelFunc `json:"-"`
 	DownloadsInProgress int32              `json:"-"`
 	CurrentPage         int                `json:"currentPage"`
+	LastError           string             `json:"lastError,omitempty"`
 }
 
 type Selector struct {
 	Type  string `json:"type"` // CSS OR XPATH
 	Value string `json:"value"`
 	For   string `json:"for"` // LINKS, ASSETS, TITLE, DESCRIPTION, AUTHOR, DATE, PAGINATION
+}
+
+type JobResult struct {
+	AssetCount int32
+	PageCount  int32
+	Err        error
 }
 
 type ScrapingRules struct {
@@ -62,6 +69,7 @@ type AppConfig struct {
 	Port           int           `json:"port"`
 	StoragePath    string        `json:"storagePath"`
 	ThumbnailsPath string        `json:"thumbnailsPath"`
+	DataPath       string        `json:"dataPath"`
 	MaxConcurrent  int           `json:"maxConcurrent"`
 	LogFile        string        `json:"logFile"`
 	DefaultTimeout time.Duration `json:"defaultTimeout"`

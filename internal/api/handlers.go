@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -23,7 +22,6 @@ import (
 	"github.com/nickheyer/Crepes/internal/storage"
 )
 
-// CREATEJOB CREATES A NEW SCRAPING JOB
 func CreateJob(c *gin.Context) {
 	var job models.ScrapingJob
 	if err := c.ShouldBindJSON(&job); err != nil {
@@ -37,9 +35,22 @@ func CreateJob(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "baseUrl is required"})
 		return
 	}
-
 	if len(job.Selectors) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "at least one selector is required"})
+		return
+	}
+
+	// VERIFY ASSET SELECTOR EXISTS
+	hasAssetSelector := false
+	for _, selector := range job.Selectors {
+		if selector.For == "assets" && selector.Value != "" {
+			hasAssetSelector = true
+			break
+		}
+	}
+
+	if !hasAssetSelector {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "at least one 'assets' selector is required"})
 		return
 	}
 
@@ -50,7 +61,6 @@ func CreateJob(c *gin.Context) {
 	job.Mutex = &sync.Mutex{}
 	job.Assets = []models.Asset{}
 	job.CurrentPage = 1
-
 	if job.Rules.UserAgent == "" {
 		job.Rules.UserAgent = config.UserAgents[0]
 	}
@@ -64,7 +74,6 @@ func CreateJob(c *gin.Context) {
 				job.Rules.Timeout = time.Duration(seconds * float64(time.Second))
 			}
 		}
-
 		// IF STILL ZERO, USE DEFAULT
 		if job.Rules.Timeout == 0 {
 			job.Rules.Timeout = config.AppConfig.DefaultTimeout
@@ -76,7 +85,10 @@ func CreateJob(c *gin.Context) {
 	log.Printf("Creating job: %s", string(jobBytes))
 
 	// STORE JOB
-	storage.AddJob(&job)
+	if err := storage.AddJob(&job); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create job: %v", err)})
+		return
+	}
 
 	// SCHEDULE JOB IF NEEDED
 	if job.Schedule != "" {
@@ -86,7 +98,6 @@ func CreateJob(c *gin.Context) {
 	c.JSON(http.StatusCreated, job)
 }
 
-// LISTJOBS RETURNS ALL JOBS
 func ListJobs(c *gin.Context) {
 	storage.JobsMutex.Lock()
 	defer storage.JobsMutex.Unlock()
@@ -99,10 +110,8 @@ func ListJobs(c *gin.Context) {
 	c.JSON(http.StatusOK, jobsList)
 }
 
-// GETJOB RETURNS A SPECIFIC JOB BY ID
 func GetJob(c *gin.Context) {
 	jobID := c.Param("id")
-
 	job, exists := storage.GetJob(jobID)
 	if !exists {
 		c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
@@ -112,10 +121,8 @@ func GetJob(c *gin.Context) {
 	c.JSON(http.StatusOK, job)
 }
 
-// DELETEJOB DELETES A JOB BY ID
 func DeleteJob(c *gin.Context) {
 	jobID := c.Param("id")
-
 	if exists := storage.DeleteJob(jobID); !exists {
 		c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
 		return
@@ -124,10 +131,8 @@ func DeleteJob(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "job deleted"})
 }
 
-// STARTJOB STARTS A JOB BY ID
 func StartJob(c *gin.Context) {
 	jobID := c.Param("id")
-
 	job, exists := storage.GetJob(jobID)
 	if !exists {
 		c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
@@ -140,15 +145,22 @@ func StartJob(c *gin.Context) {
 		return
 	}
 
+	// RESET COMPLETED ASSETS IF JOB WAS PREVIOUSLY RUN
+	if job.Status == "completed" || job.Status == "stopped" || job.Status == "failed" {
+		job.Mutex.Lock()
+		job.CompletedAssets = make(map[string]bool)
+		job.CurrentPage = 1
+		job.LastError = ""
+		job.Mutex.Unlock()
+	}
+
 	go scraper.RunJob(job)
 
 	c.JSON(http.StatusOK, gin.H{"message": "job started"})
 }
 
-// STOPJOB STOPS A RUNNING JOB
 func StopJob(c *gin.Context) {
 	jobID := c.Param("id")
-
 	job, exists := storage.GetJob(jobID)
 	if !exists {
 		c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
@@ -156,67 +168,33 @@ func StopJob(c *gin.Context) {
 	}
 
 	// STOP JOB ONLY IF RUNNING
+	job.Mutex.Lock()
 	if job.Status != "running" || job.CancelFunc == nil {
+		job.Mutex.Unlock()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "job not running"})
 		return
 	}
 
-	job.CancelFunc()
-	job.Status = "stopped"
-	storage.SaveJobs()
+	// CAPTURE THE CANCEL FUNCTION AND NULL IT OUT TO PREVENT RACE CONDITIONS
+	cancelFunc := job.CancelFunc
+	job.CancelFunc = nil
+	job.Status = "stopping" // INTERMEDIATE STATE
+	job.Mutex.Unlock()
 
+	// CALL CANCEL FUNCTION OUTSIDE OF LOCK
+	cancelFunc()
+
+	// SET FINAL STATUS
+	job.Mutex.Lock()
+	job.Status = "stopped"
+	job.Mutex.Unlock()
+
+	storage.SaveJobs()
 	c.JSON(http.StatusOK, gin.H{"message": "job stopped"})
 }
 
-// NEXTJOBPAGE ADVANCES A JOB TO THE NEXT PAGE
-func NextJobPage(c *gin.Context) {
-	jobID := c.Param("id")
-
-	storage.JobsMutex.Lock()
-	job, exists := storage.Jobs[jobID]
-	if !exists {
-		storage.JobsMutex.Unlock()
-		c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
-		return
-	}
-
-	// INCREMENT THE PAGE
-	job.CurrentPage++
-
-	// CONSTRUCT THE NEW URL WITH PAGE PARAMETER
-	baseURL, err := url.Parse(job.BaseURL)
-	if err != nil {
-		storage.JobsMutex.Unlock()
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid base URL"})
-		return
-	}
-
-	q := baseURL.Query()
-	q.Set("page", strconv.Itoa(job.CurrentPage))
-	baseURL.RawQuery = q.Encode()
-
-	// UPDATE THE JOB URL
-	job.BaseURL = baseURL.String()
-
-	// CLEAR THE COMPLETED ASSETS MAP TO ALLOW RESCANNING LINKS
-	job.CompletedAssets = make(map[string]bool)
-
-	storage.JobsMutex.Unlock()
-
-	// START THE JOB WITH THE NEW PAGE
-	go scraper.RunJob(job)
-
-	c.JSON(http.StatusOK, gin.H{
-		"message":     "Job advanced to next page",
-		"currentPage": job.CurrentPage,
-		"newUrl":      job.BaseURL,
-	})
-}
-
-// GETJOBASSETS RETURNS ASSETS FOR A SPECIFIC JOB
 func GetJobAssets(c *gin.Context) {
 	jobID := c.Param("id")
-
 	job, exists := storage.GetJob(jobID)
 	if !exists {
 		c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
@@ -226,7 +204,6 @@ func GetJobAssets(c *gin.Context) {
 	c.JSON(http.StatusOK, job.Assets)
 }
 
-// GETALLASSETS RETURNS ALL ASSETS WITH OPTIONAL FILTERING
 func GetAllAssets(c *gin.Context) {
 	// GET QUERY PARAMETERS FOR FILTERING
 	typeFilter := c.Query("type")
@@ -235,7 +212,6 @@ func GetAllAssets(c *gin.Context) {
 
 	storage.JobsMutex.Lock()
 	var allAssets []models.Asset
-
 	for jobID, job := range storage.Jobs {
 		if jobIDFilter != "" && jobID != jobIDFilter {
 			continue
@@ -269,7 +245,6 @@ func GetAllAssets(c *gin.Context) {
 	c.JSON(http.StatusOK, allAssets)
 }
 
-// GETASSET RETURNS A SPECIFIC ASSET BY ID
 func GetAsset(c *gin.Context) {
 	assetID := c.Param("id")
 	var foundAsset *models.Asset
@@ -302,7 +277,6 @@ func GetAsset(c *gin.Context) {
 	c.JSON(http.StatusOK, assetCopy)
 }
 
-// DELETEASSET DELETES AN ASSET BY ID
 func DeleteAsset(c *gin.Context) {
 	assetID := c.Param("id")
 	var foundIndex int = -1
@@ -332,6 +306,11 @@ func DeleteAsset(c *gin.Context) {
 		// RELEASE THE LOCK BEFORE DELETING FILES
 		storage.JobsMutex.Unlock()
 
+		// DELETE ASSET FROM DATABASE
+		if err := storage.DeleteAsset(assetID); err != nil {
+			log.Printf("Error deleting asset from database: %v", err)
+		}
+
 		// DELETE ASSET FILES
 		if asset.LocalPath != "" {
 			fullPath := filepath.Join(config.AppConfig.StoragePath, asset.LocalPath)
@@ -343,6 +322,7 @@ func DeleteAsset(c *gin.Context) {
 			os.Remove(fullThumbPath)
 		}
 
+		// UPDATE JOB IN DATABASE
 		storage.SaveJobs()
 
 		c.JSON(http.StatusOK, gin.H{"message": "asset deleted"})
@@ -353,7 +333,6 @@ func DeleteAsset(c *gin.Context) {
 	c.JSON(http.StatusNotFound, gin.H{"error": "asset not found"})
 }
 
-// REGENERATETHUMBNAIL REGENERATES A THUMBNAIL FOR AN ASSET
 func RegenerateThumbnail(c *gin.Context) {
 	assetID := c.Param("id")
 	var foundAsset *models.Asset
@@ -395,6 +374,8 @@ func RegenerateThumbnail(c *gin.Context) {
 	foundAsset.ThumbnailPath = newThumbPath
 	storage.JobsMutex.Unlock()
 
+	// SAVE TO DATABASE
 	storage.SaveJobs()
+
 	c.JSON(http.StatusOK, gin.H{"message": "thumbnail regenerated", "thumbnailPath": newThumbPath})
 }

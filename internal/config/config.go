@@ -25,14 +25,16 @@ func InitConfig() {
 		Port:           8080,
 		StoragePath:    "./storage",
 		ThumbnailsPath: "./thumbnails",
+		DataPath:       "./data",
 		MaxConcurrent:  5,
 		LogFile:        "scraper.log",
-		DefaultTimeout: 60 * time.Second,
+		DefaultTimeout: 5 * time.Minute,
 	}
 
 	// ENSURE DIRECTORIES EXIST
 	os.MkdirAll(AppConfig.StoragePath, 0755)
 	os.MkdirAll(AppConfig.ThumbnailsPath, 0755)
+	os.MkdirAll(AppConfig.DataPath, 0755)
 }
 
 // GETRANDOMUSERAGENT RETURNS A RANDOM USER AGENT FROM THE LIST

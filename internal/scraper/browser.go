@@ -262,9 +262,9 @@ func ClickPaginationLink(ctx context.Context, url string, paginationSelector str
 			}
 			return nil
 		}),
-		// TRY TO FIND AND CLICK THE NEXT PAGE BUTTON
+		// Try to find and click the next page button
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			// CHECK IF THE SELECTOR EXISTS
+			// Check if the selector exists
 			var exists bool
 			if err := chromedp.Evaluate(`!!document.querySelector(`+strconv.Quote(paginationSelector)+`)`, &exists).Do(ctx); err != nil {
 				return err
@@ -281,13 +281,12 @@ func ClickPaginationLink(ctx context.Context, url string, paginationSelector str
 				nextURL = MakeAbsoluteURL(url, href)
 			}
 
-			// CLICK THE ELEMENT
+			// Click the element
 			return chromedp.Click(paginationSelector).Do(ctx)
 		}),
-
-		// WAIT FOR NAVIGATION TO COMPLETE
+		// Wait for navigation to complete
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			// WAIT FOR THE PAGE TO LOAD AFTER CLICKING
+			// Wait for the page to load after clicking
 			var readyState string
 			if err := chromedp.Evaluate(`document.readyState`, &readyState).Do(ctx); err != nil {
 				return err
@@ -297,7 +296,7 @@ func ClickPaginationLink(ctx context.Context, url string, paginationSelector str
 				return chromedp.Sleep(3 * time.Second).Do(ctx)
 			}
 
-			// IF WE DIDN'T GET THE HREF EARLIER, GET THE CURRENT URL
+			// If we didn't get the href earlier, get the current URL
 			if nextURL == "" {
 				return chromedp.Evaluate(`window.location.href`, &nextURL).Do(ctx)
 			}

@@ -15,7 +15,6 @@ import (
 	"golang.org/x/net/publicsuffix"
 )
 
-// FETCHWITHHTTP FETCHES PAGE CONTENT USING AN HTTP CLIENT
 func FetchWithHTTP(ctx context.Context, url, userAgent string) (string, error) {
 	// CREATE TRANSPORT WITH RELAXED SECURITY AND TIMEOUTS
 	transport := &http.Transport{
@@ -149,7 +148,6 @@ func FetchWithHTTP(ctx context.Context, url, userAgent string) (string, error) {
 	return string(body), nil
 }
 
-// TESTSITEACCESSIBILITY TESTS IF A SITE IS ACCESSIBLE
 func TestSiteAccessibility(ctx context.Context, url string) error {
 	// FIRST TEST WITH A SIMPLE HTTP REQUEST
 	client := &http.Client{

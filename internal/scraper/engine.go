@@ -16,7 +16,6 @@ import (
 	"github.com/nickheyer/Crepes/internal/storage"
 )
 
-// RUNJOB STARTS A SCRAPING JOB
 func RunJob(job *models.ScrapingJob) {
 	job.Mutex.Lock()
 	if job.Status == "running" {
