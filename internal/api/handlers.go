@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -22,12 +23,59 @@ import (
 	"github.com/nickheyer/Crepes/internal/storage"
 )
 
+func ErrorResponse(c *gin.Context, status int, message string) {
+	c.JSON(status, gin.H{
+		"success": false,
+		"error":   message,
+	})
+}
+
+func SuccessResponse(c *gin.Context, status int, data any) {
+	c.JSON(status, gin.H{
+		"success": true,
+		"data":    data,
+	})
+}
+
 func CreateJob(c *gin.Context) {
-	var job models.ScrapingJob
-	if err := c.ShouldBindJSON(&job); err != nil {
-		log.Printf("JSON binding error: %v", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	// CHECK CONTENT TYPE
+	contentType := c.Request.Header.Get("Content-Type")
+	if !strings.Contains(contentType, "application/json") {
+		ErrorResponse(c, http.StatusBadRequest, "Content-Type must be application/json")
 		return
+	}
+
+	// READ REQUEST BODY
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		ErrorResponse(c, http.StatusBadRequest, "Failed to read request body")
+		return
+	}
+
+	// DETERMINE IF THIS IS A PIPELINE OR LEGACY JOB
+	var jobData map[string]any
+	if err := json.Unmarshal(body, &jobData); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	var job models.ScrapingJob
+	isPipeline := false
+
+	// CHECK IF THIS IS A PIPELINE JOB
+	if _, ok := jobData["pipeline"]; ok {
+		isPipeline = true
+		// CREATE JOB FROM PIPELINE FORMAT
+		if err := json.Unmarshal(body, &job); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid pipeline job format"})
+			return
+		}
+	} else {
+		// LEGACY FORMAT - BIND TO JOB STRUCT
+		if err := json.Unmarshal(body, &job); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid job format"})
+			return
+		}
 	}
 
 	// VALIDATE JOB
@@ -35,58 +83,108 @@ func CreateJob(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "baseUrl is required"})
 		return
 	}
-	if len(job.Selectors) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "at least one selector is required"})
-		return
+
+	// ENSURE JOB HAS AN ID
+	if job.ID == "" {
+		job.ID = uuid.New().String()
 	}
 
-	// VERIFY ASSET SELECTOR EXISTS
-	hasAssetSelector := false
-	for _, selector := range job.Selectors {
-		if selector.For == "assets" && selector.Value != "" {
-			hasAssetSelector = true
-			break
+	// SET DEFAULTS IF NEEDED
+	if job.Status == "" {
+		job.Status = "idle"
+	}
+
+	if processingConfig, ok := jobData["processing"].(map[string]any); ok {
+		// STORE PROCESSING CONFIG IN METADATA
+		if job.Metadata == nil {
+			job.Metadata = make(map[string]any)
 		}
+		job.Metadata["processing"] = processingConfig
 	}
 
-	if !hasAssetSelector {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "at least one 'assets' selector is required"})
-		return
+	// HANDLE FILTERS
+	if filters, ok := jobData["filters"].([]any); ok {
+		// STORE FILTERS IN METADATA
+		if job.Metadata == nil {
+			job.Metadata = make(map[string]any)
+		}
+		job.Metadata["filters"] = filters
 	}
 
-	// SET DEFAULTS
-	job.ID = uuid.New().String()
-	job.Status = "idle"
-	job.CompletedAssets = make(map[string]bool)
+	// HANDLE TAGS
+	if tags, ok := jobData["tags"].([]any); ok {
+		// STORE TAGS IN METADATA
+		if job.Metadata == nil {
+			job.Metadata = make(map[string]any)
+		}
+		job.Metadata["tags"] = tags
+	}
+
+	// INITIALIZE MUTEX
 	job.Mutex = &sync.Mutex{}
-	job.Assets = []models.Asset{}
-	job.CurrentPage = 1
-	if job.Rules.UserAgent == "" {
-		job.Rules.UserAgent = config.UserAgents[0]
-	}
 
-	// HANDLE TIMEOUT AS INT64 OR FLOAT64 FROM JSON
-	if job.Rules.Timeout == 0 {
-		// CONVERT TIMEOUT FROM SECONDS TO NANOSECONDS IF IT'S A NUMBER VALUE IN JSON
-		timeoutValue := c.Request.URL.Query().Get("timeout")
-		if timeoutValue != "" {
-			if seconds, err := strconv.ParseFloat(timeoutValue, 64); err == nil {
-				job.Rules.Timeout = time.Duration(seconds * float64(time.Second))
+	// IF PIPELINE FORMAT, VALIDATE PIPELINE
+	if isPipeline {
+		// STORE PIPELINE AS JSON STRING
+		if _, isPipelineMap := jobData["pipeline"].(map[string]any); isPipelineMap {
+			pipelineJSON, err := json.Marshal(jobData["pipeline"])
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid pipeline format"})
+				return
+			}
+			job.Pipeline = string(pipelineJSON)
+		} else if pipelineStr, isString := jobData["pipeline"].(string); isString {
+			// ALREADY A JSON STRING
+			job.Pipeline = pipelineStr
+		}
+	} else {
+		// LEGACY FORMAT - INITIALIZE SELECTORS IF NOT SET
+		if job.Selectors == nil {
+			job.Selectors = []models.SelectorItem{}
+		}
+
+		if len(job.Selectors) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "at least one selector is required"})
+			return
+		}
+
+		// SET DEFAULTS FOR RULES
+		if job.Rules.UserAgent == "" {
+			job.Rules.UserAgent = config.UserAgents[0]
+		}
+
+		if job.Rules.MaxDepth <= 0 {
+			job.Rules.MaxDepth = 5
+		}
+
+		// HANDLE TIMEOUT AS INT64 OR FLOAT64 FROM JSON
+		if job.Rules.Timeout == 0 {
+			// CONVERT TIMEOUT FROM SECONDS TO NANOSECONDS IF IT'S A NUMBER VALUE IN JSON
+			timeoutValue := c.Request.URL.Query().Get("timeout")
+			if timeoutValue != "" {
+				if seconds, err := strconv.ParseFloat(timeoutValue, 64); err == nil {
+					job.Rules.Timeout = time.Duration(seconds * float64(time.Second))
+				}
+			}
+			// IF STILL ZERO, USE DEFAULT
+			if job.Rules.Timeout == 0 {
+				job.Rules.Timeout = config.AppConfig.DefaultTimeout
 			}
 		}
-		// IF STILL ZERO, USE DEFAULT
-		if job.Rules.Timeout == 0 {
-			job.Rules.Timeout = config.AppConfig.DefaultTimeout
+
+		// GENERATE PIPELINE FROM LEGACY JOB
+		pipeline := scraper.ConvertJobToPipeline(&job)
+		pipelineJSON, err := json.Marshal(pipeline)
+		if err != nil {
+			log.Printf("Error marshaling pipeline: %v", err)
+		} else {
+			job.Pipeline = string(pipelineJSON)
 		}
 	}
-
-	// LOG THE JOB BEING CREATED FOR DEBUGGING
-	jobBytes, _ := json.Marshal(job)
-	log.Printf("Creating job: %s", string(jobBytes))
 
 	// STORE JOB
 	if err := storage.AddJob(&job); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create job: %v", err)})
+		ErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to create job: %v", err))
 		return
 	}
 
@@ -95,17 +193,19 @@ func CreateJob(c *gin.Context) {
 		scheduler.ScheduleJob(&job)
 	}
 
-	c.JSON(http.StatusCreated, job)
+	SuccessResponse(c, http.StatusCreated, job)
 }
 
 func ListJobs(c *gin.Context) {
-	storage.JobsMutex.Lock()
-	defer storage.JobsMutex.Unlock()
+	// Create a copy of the jobs to avoid holding the mutex while serializing to JSON
+	jobsList := make([]*models.ScrapingJob, 0)
 
-	jobsList := make([]*models.ScrapingJob, 0, len(storage.Jobs))
+	// Critical section - keep mutex locked for as short as possible
+	storage.JobsMutex.Lock()
 	for _, job := range storage.Jobs {
 		jobsList = append(jobsList, job)
 	}
+	storage.JobsMutex.Unlock()
 
 	c.JSON(http.StatusOK, jobsList)
 }
@@ -139,21 +239,28 @@ func StartJob(c *gin.Context) {
 		return
 	}
 
+	// Critical section - lock only for status check and initialization
+	job.Mutex.Lock()
+
 	// START JOB ONLY IF NOT RUNNING
 	if job.Status == "running" {
+		job.Mutex.Unlock()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "job already running"})
 		return
 	}
 
 	// RESET COMPLETED ASSETS IF JOB WAS PREVIOUSLY RUN
 	if job.Status == "completed" || job.Status == "stopped" || job.Status == "failed" {
-		job.Mutex.Lock()
 		job.CompletedAssets = make(map[string]bool)
 		job.CurrentPage = 1
 		job.LastError = ""
-		job.Mutex.Unlock()
 	}
 
+	// Change status to "starting" to avoid race conditions
+	job.Status = "starting"
+	job.Mutex.Unlock()
+
+	// Start the job in a separate goroutine
 	go scraper.RunJob(job)
 
 	c.JSON(http.StatusOK, gin.H{"message": "job started"})
@@ -193,6 +300,72 @@ func StopJob(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "job stopped"})
 }
 
+func GetJobStatistics(c *gin.Context) {
+	jobID := c.Param("id")
+	job, exists := storage.GetJob(jobID)
+	if !exists {
+		ErrorResponse(c, http.StatusNotFound, "Job not found")
+		return
+	}
+
+	// CALCULATE STATISTICS
+	stats := map[string]any{
+		"totalAssets": len(job.Assets),
+		"assetTypes":  map[string]int{},
+		"status":      job.Status,
+		"lastRun":     job.LastRun,
+		"nextRun":     job.NextRun,
+		"duration":    "0s",
+	}
+
+	// COUNT ASSETS BY TYPE
+	typeCount := map[string]int{}
+	for _, asset := range job.Assets {
+		typeCount[asset.Type]++
+	}
+	stats["assetTypes"] = typeCount
+
+	// CALCULATE DURATION IF JOB HAS RUN
+	if !job.LastRun.IsZero() {
+		var endTime time.Time
+		if job.Status == "running" {
+			endTime = time.Now()
+		} else {
+			// USE METADATA TO GET END TIME IF AVAILABLE
+			if job.Metadata != nil {
+				if endTimeStr, ok := job.Metadata["endTime"].(string); ok {
+					if parsedTime, err := time.Parse(time.RFC3339, endTimeStr); err == nil {
+						endTime = parsedTime
+					}
+				}
+			}
+			// DEFAULT TO NOW IF NO END TIME FOUND
+			if endTime.IsZero() {
+				endTime = time.Now()
+			}
+		}
+		stats["duration"] = endTime.Sub(job.LastRun).String()
+	}
+
+	// ADD SUCCESS/FAILURE COUNTS IF AVAILABLE
+	if job.Metadata != nil {
+		if succeeded, ok := job.Metadata["succeeded"].(float64); ok {
+			stats["succeeded"] = int(succeeded)
+		}
+		if failed, ok := job.Metadata["failed"].(float64); ok {
+			stats["failed"] = int(failed)
+		}
+		if total, ok := job.Metadata["total"].(float64); ok {
+			stats["total"] = int(total)
+		}
+		if progress, ok := job.Metadata["progress"].(float64); ok {
+			stats["progress"] = progress
+		}
+	}
+
+	SuccessResponse(c, http.StatusOK, stats)
+}
+
 func GetJobAssets(c *gin.Context) {
 	jobID := c.Param("id")
 	job, exists := storage.GetJob(jobID)
@@ -209,6 +382,8 @@ func GetAllAssets(c *gin.Context) {
 	typeFilter := c.Query("type")
 	searchTerm := c.Query("search")
 	jobIDFilter := c.Query("jobId")
+	fromDate := c.Query("fromDate")
+	toDate := c.Query("toDate")
 
 	storage.JobsMutex.Lock()
 	var allAssets []models.Asset
@@ -216,7 +391,6 @@ func GetAllAssets(c *gin.Context) {
 		if jobIDFilter != "" && jobID != jobIDFilter {
 			continue
 		}
-
 		for _, asset := range job.Assets {
 			// ADD JOB ID TO ASSET FOR REFERENCE
 			asset.JobID = jobID
@@ -230,10 +404,39 @@ func GetAllAssets(c *gin.Context) {
 				searchLower := strings.ToLower(searchTerm)
 				titleLower := strings.ToLower(asset.Title)
 				descLower := strings.ToLower(asset.Description)
-
 				if !strings.Contains(titleLower, searchLower) &&
 					!strings.Contains(descLower, searchLower) {
 					continue
+				}
+			}
+
+			// APPLY DATE FILTERS IF PRESENT
+			if fromDate != "" || toDate != "" {
+				if asset.Date == "" {
+					continue // SKIP ASSETS WITHOUT DATE IF DATE FILTER APPLIED
+				}
+
+				assetDate, err := time.Parse(time.RFC3339, asset.Date)
+				if err != nil {
+					continue // SKIP IF DATE CANNOT BE PARSED
+				}
+
+				if fromDate != "" {
+					from, err := time.Parse("2006-01-02", fromDate)
+					if err == nil && assetDate.Before(from) {
+						continue
+					}
+				}
+
+				if toDate != "" {
+					to, err := time.Parse("2006-01-02", toDate)
+					if err == nil {
+						// ADD A DAY TO INCLUDE THE END DATE
+						to = to.Add(24 * time.Hour)
+						if assetDate.After(to) {
+							continue
+						}
+					}
 				}
 			}
 
@@ -242,7 +445,7 @@ func GetAllAssets(c *gin.Context) {
 	}
 	storage.JobsMutex.Unlock()
 
-	c.JSON(http.StatusOK, allAssets)
+	SuccessResponse(c, http.StatusOK, allAssets)
 }
 
 func GetAsset(c *gin.Context) {
@@ -378,4 +581,62 @@ func RegenerateThumbnail(c *gin.Context) {
 	storage.SaveJobs()
 
 	c.JSON(http.StatusOK, gin.H{"message": "thumbnail regenerated", "thumbnailPath": newThumbPath})
+}
+
+func UpdateJob(c *gin.Context) {
+	id := c.Param("id")
+
+	// Get existing job
+	job, exists := storage.GetJob(id)
+	if !exists {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Job not found"})
+		return
+	}
+
+	// Don't update running jobs
+	if job.Status == "running" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot update a running job. Stop the job first."})
+		return
+	}
+
+	// Bind updated job data
+	var updatedJob models.ScrapingJob
+	if err := c.ShouldBindJSON(&updatedJob); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Update only allowed fields while keeping the ID and other fields the same
+	// Only update baseURL and selectors
+	job.BaseURL = updatedJob.BaseURL
+	job.Selectors = updatedJob.Selectors
+	job.Rules = updatedJob.Rules
+	job.Schedule = updatedJob.Schedule
+
+	// Validate the selectors
+	hasLinksSelector := false
+	hasAssetsSelector := false
+
+	for _, selector := range job.Selectors {
+		if selector.Purpose == "links" && !selector.IsOptional {
+			hasLinksSelector = true
+		}
+		if selector.Purpose == "assets" && !selector.IsOptional {
+			hasAssetsSelector = true
+		}
+	}
+
+	if !hasLinksSelector || !hasAssetsSelector {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Jobs must have at least one non-optional links selector and one non-optional assets selector"})
+		return
+	}
+
+	// Save the updated job
+	err := storage.UpdateJob(job)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Job updated successfully", "id": job.ID})
 }

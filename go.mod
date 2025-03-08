@@ -9,14 +9,20 @@ require (
 	github.com/go-co-op/gocron v1.37.0
 	github.com/google/uuid v1.6.0
 	github.com/mattn/go-sqlite3 v1.14.24
+	github.com/shirou/gopsutil v3.21.11+incompatible
 	golang.org/x/net v0.35.0
+)
+
+require (
+	github.com/go-ole/go-ole v1.2.6 // indirect
+	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 )
 
 require (
 	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/bytedance/sonic v1.11.6 // indirect
 	github.com/bytedance/sonic/loader v0.1.1 // indirect
-	github.com/chromedp/cdproto v0.0.0-20250224005500-01948a15fe7c // indirect
+	github.com/chromedp/cdproto v0.0.0-20250224005500-01948a15fe7c
 	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/cloudwego/base64x v0.1.4 // indirect
 	github.com/cloudwego/iasm v0.2.0 // indirect

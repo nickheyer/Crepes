@@ -1,6 +1,7 @@
 package assets
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/nickheyer/Crepes/internal/config"
@@ -26,6 +28,22 @@ func GenerateThumbnail(asset *models.Asset) (string, error) {
 	thumbPath := filepath.Join(thumbnailDir, thumbName)
 	relThumbPath := filepath.Join(filepath.Dir(asset.LocalPath), thumbName)
 
+	// ENSURE STATIC DIRECTORY EXISTS
+	staticIconsDir := "./static/icons"
+	if err := os.MkdirAll(staticIconsDir, 0755); err != nil {
+		log.Printf("Error creating static icons directory: %v", err)
+	}
+
+	// CREATE DEFAULT ICONS IF THEY DON'T EXIST
+	iconTypes := []string{"video", "audio", "image", "document", "generic"}
+	for _, iconType := range iconTypes {
+		iconPath := filepath.Join(staticIconsDir, iconType+".jpg")
+		if !FileExists(iconPath) {
+			// CREATE A SIMPLE COLORED SQUARE AS ICON
+			CreateFallbackJpg(iconPath)
+		}
+	}
+
 	// CHECK ASSET TYPE
 	switch asset.Type {
 	case "video":
@@ -33,19 +51,37 @@ func GenerateThumbnail(asset *models.Asset) (string, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
+		// CHECK IF FILE EXISTS AND HAS SIZE
+		sourceFile := filepath.Join(config.AppConfig.StoragePath, asset.LocalPath)
+		info, err := os.Stat(sourceFile)
+		if err != nil {
+			log.Printf("Source file error: %v", err)
+			return GenerateGenericThumbnail(asset)
+		}
+
+		if info.Size() < 10000 {
+			log.Printf("Video file too small for ffmpeg: %d bytes", info.Size())
+			return GenerateGenericThumbnail(asset)
+		}
+
 		cmd := exec.CommandContext(
 			ctx,
 			"ffmpeg",
-			"-i", filepath.Join(config.AppConfig.StoragePath, asset.LocalPath),
-			"-ss", "00:00:05", // TAKE FRAME AT 5 SECONDS
+			"-i", sourceFile,
+			"-ss", "00:00:01", // TAKE FRAME AT 1 SECOND (MORE LIKELY TO WORK)
 			"-vframes", "1",
 			"-vf", "scale=320:-1",
 			"-y",
 			thumbPath,
 		)
 
+		// CAPTURE ERROR OUTPUT FOR DEBUGGING
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+
 		if err := cmd.Run(); err != nil {
 			log.Printf("FFMPEG failed for video thumbnail: %v", err)
+			log.Printf("FFMPEG error output: %s", stderr.String())
 			return GenerateGenericThumbnail(asset)
 		}
 
@@ -75,7 +111,6 @@ func GenerateThumbnail(asset *models.Asset) (string, error) {
 	return relThumbPath, nil
 }
 
-// GENERATEGENERICTHUMBNAIL CREATES A GENERIC THUMBNAIL BASED ON FILE TYPE
 func GenerateGenericThumbnail(asset *models.Asset) (string, error) {
 	// CREATE GENERIC THUMBNAIL BASED ON FILE TYPE
 	thumbnailDir := filepath.Join(config.AppConfig.ThumbnailsPath, filepath.Dir(asset.LocalPath))
@@ -87,15 +122,31 @@ func GenerateGenericThumbnail(asset *models.Asset) (string, error) {
 	thumbPath := filepath.Join(thumbnailDir, thumbName)
 	relThumbPath := filepath.Join(filepath.Dir(asset.LocalPath), thumbName)
 
+	// ENSURE STATIC DIRECTORY EXISTS
+	staticIconsDir := "./static/icons"
+	if err := os.MkdirAll(staticIconsDir, 0755); err != nil {
+		log.Printf("Error creating static icons directory: %v", err)
+		// CREATE A FALLBACK THUMBNAIL DIRECTLY
+		CreateFallbackJpg(thumbPath)
+		return relThumbPath, nil
+	}
+
 	// COPY GENERIC ICON BASED ON TYPE
 	genericPath := fmt.Sprintf("./static/icons/%s.jpg", asset.Type)
 	if !FileExists(genericPath) {
 		genericPath = "./static/icons/generic.jpg"
+
+		// CREATE GENERIC ICON IF IT DOESN'T EXIST
+		if !FileExists(genericPath) {
+			CreateFallbackJpg(genericPath)
+		}
 	}
 
 	input, err := os.Open(genericPath)
 	if err != nil {
-		return "", err
+		// FALLBACK TO DIRECT CREATION
+		CreateFallbackJpg(thumbPath)
+		return relThumbPath, nil
 	}
 	defer input.Close()
 
@@ -115,14 +166,89 @@ func GenerateGenericThumbnail(asset *models.Asset) (string, error) {
 
 // CREATEFALLBACKJPG CREATES A SIMPLE FALLBACK JPG IF IMAGEMAGICK IS NOT AVAILABLE
 func CreateFallbackJpg(jpgPath string) {
-	// CREATE A SIMPLE 320X320 BLACK IMAGE AS FALLBACK
-	img := make([]byte, 320*320*3)
-	for i := range img {
-		img[i] = 0 // BLACK
+	// CREATE A SIMPLE 320X320 COLORED IMAGE AS FALLBACK
+	width, height := 320, 320
+	img := make([]byte, width*height*3)
+
+	// CHOOSE COLOR BASED ON FILENAME
+	var r, g, b byte = 0, 0, 0
+
+	filename := filepath.Base(jpgPath)
+	switch {
+	case strings.Contains(filename, "video"):
+		r, g, b = 25, 25, 100 // DARK BLUE
+	case strings.Contains(filename, "audio"):
+		r, g, b = 25, 100, 25 // DARK GREEN
+	case strings.Contains(filename, "image"):
+		r, g, b = 100, 25, 25 // DARK RED
+	case strings.Contains(filename, "document"):
+		r, g, b = 100, 100, 25 // YELLOW
+	default:
+		r, g, b = 50, 50, 50 // GRAY
 	}
 
-	// WRITE AS RAW JPG (NOT IDEAL BUT WORKS AS EMERGENCY FALLBACK)
-	os.WriteFile(jpgPath, img, 0644)
+	// FILL IMAGE WITH COLOR
+	for i := 0; i < width*height; i++ {
+		img[i*3] = r   // R
+		img[i*3+1] = g // G
+		img[i*3+2] = b // B
+	}
+
+	// CREATE THE FILE
+	if err := os.MkdirAll(filepath.Dir(jpgPath), 0755); err != nil {
+		log.Printf("Error creating directory for fallback JPG: %v", err)
+		return
+	}
+
+	// WRITE TO JPG USING FFMPEG
+	tempRaw := jpgPath + ".raw"
+	if err := os.WriteFile(tempRaw, img, 0644); err != nil {
+		log.Printf("Error writing raw image data: %v", err)
+		return
+	}
+
+	// TRY TO CONVERT WITH FFMPEG
+	cmd := exec.Command(
+		"ffmpeg",
+		"-f", "rawvideo",
+		"-pixel_format", "rgb24",
+		"-video_size", fmt.Sprintf("%dx%d", width, height),
+		"-i", tempRaw,
+		"-y",
+		jpgPath,
+	)
+
+	if err := cmd.Run(); err != nil {
+		log.Printf("FFMPEG failed to convert raw image: %v", err)
+
+		// FALLBACK TO WRITING DIRECTLY
+		f, err := os.Create(jpgPath)
+		if err != nil {
+			log.Printf("Error creating fallback JPG: %v", err)
+			return
+		}
+		defer f.Close()
+
+		// WRITE SIMPLE JPG HEADER
+		header := []byte{
+			0xFF, 0xD8, // SOI
+			0xFF, 0xE0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, // APP0
+			0xFF, 0xDB, 0x00, 0x43, 0x00, // DQT
+		}
+
+		// SIMPLE QUANTIZATION TABLE (ALL 1'S)
+		quantTable := make([]byte, 64)
+		for i := range quantTable {
+			quantTable[i] = 1
+		}
+
+		f.Write(header)
+		f.Write(quantTable)
+		f.Write(img) // NOT A VALID JPG, BUT WILL DISPLAY AS SOMETHING
+	}
+
+	// CLEAN UP TEMP FILE
+	os.Remove(tempRaw)
 }
 
 // FILEEXISTS CHECKS IF A FILE EXISTS

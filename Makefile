@@ -12,6 +12,7 @@ STORAGE_DIR=./storage
 THUMB_DIR=./thumbnails
 WEB_DIR=./internal/ui
 WEB_DIST=./internal/ui/build
+WEB_MODULES=./internal/ui/node_modules
 DATA_DIR=./data
 
 # FOR TESTING ONLY

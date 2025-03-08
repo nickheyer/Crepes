@@ -5,7 +5,6 @@
 sandbox/
 static/
 storage/
-templates/
 thumbnails/
 bak.json
 jobs.json
