@@ -1,85 +1,91 @@
 <script>
     import { onMount } from "svelte";
-    import { createEventDispatcher } from "svelte";
+    import { state as jobState, setStepValidity } from "$lib/stores/jobStore.svelte";
     
-    // Create dispatch function
-    const dispatch = createEventDispatcher();
-    
-    // Props
-    let { formData = {} } = $props();
-    
-    // Local state - breaking the reactive cycle
-    let processing = $state(
-        formData.processing || {
-            thumbnails: true,
-            metadata: true,
-            imageResize: false,
-            imageWidth: 1280,
-            videoConvert: false,
-            videoFormat: "mp4",
-            extractText: false,
-            deduplication: true,
-        }
-    );
-    
-    let isValid = $state(true);
-    let shouldUpdateFormData = $state(false);
-    
-    // Initialize
-    onMount(() => {
-        validate();
+    // LOCAL STATE - SET DEFAULTS TO AVOID UNDEFINED
+    let processing = $state({
+        thumbnails: jobState.formData.data.processing?.thumbnails ?? true,
+        metadata: jobState.formData.data.processing?.metadata ?? true,
+        imageResize: jobState.formData.data.processing?.imageResize ?? false,
+        imageWidth: jobState.formData.data.processing?.imageWidth ?? 1280,
+        videoConvert: jobState.formData.data.processing?.videoConvert ?? false,
+        videoFormat: jobState.formData.data.processing?.videoFormat ?? "mp4",
+        extractText: jobState.formData.data.processing?.extractText ?? false,
+        deduplication: jobState.formData.data.processing?.deduplication ?? true,
+        headless: jobState.formData.data.processing?.headless ?? true
     });
     
-    // Validate the step
+    let isValid = $state(true);
+    
+    // INITIALIZE
+    onMount(() => {
+        validate();
+        updateFormData();
+    });
+    
+    // VALIDATE THE STEP
     function validate() {
         let valid = true;
-        // Validate image width is a reasonable number if resize is enabled
-        if (
-            processing.imageResize &&
-            (processing.imageWidth < 100 || processing.imageWidth > 10000)
-        ) {
+        
+        // VALIDATE IMAGE WIDTH IS A REASONABLE NUMBER IF RESIZE IS ENABLED
+        if (processing.imageResize &&
+            (processing.imageWidth < 100 || processing.imageWidth > 10000)) {
             valid = false;
         }
+        
         isValid = valid;
-        dispatch("validate", isValid);
-        return isValid;
+        setStepValidity(4, valid);
+        return valid;
     }
     
-    // Update form data WITHOUT a reactive effect
+    // UPDATE FORM DATA WITH VALIDATION
     function updateFormData() {
-        if (!shouldUpdateFormData) return;
+        // CLONE THE PROCESSING OBJECT
+        const updatedProcessing = { ...processing };
         
-        const updatedData = {
-            ...formData,
-            processing: { ...processing },
-        };
+        // CONVERT WIDTH TO NUMBER
+        updatedProcessing.imageWidth = parseInt(processing.imageWidth) || 1280;
         
-        // Convert width to number
-        updatedData.processing.imageWidth = parseInt(processing.imageWidth) || 1280;
-        
-        const isValid = validate();
-        if (isValid) {
-            dispatch("update", updatedData);
+        // ONLY UPDATE IF VALUES ACTUALLY CHANGED
+        if (JSON.stringify(jobState.formData.data.processing) !== JSON.stringify(updatedProcessing)) {
+            jobState.formData.data.processing = updatedProcessing;
         }
         
-        // Set flag back to false to prevent infinite loop
-        shouldUpdateFormData = false;
+        validate();
     }
     
-    // Handle form input changes
+    // HANDLE FORM INPUT CHANGES
     function handleInputChange() {
-        shouldUpdateFormData = true;
-        validate();
-        // Use setTimeout to break the reactive cycle
-        setTimeout(updateFormData, 0);
+        updateFormData();
     }
+    
+    // FIXED EFFECT - TRACK ALL PROCESSING PROPERTIES EXPLICITLY
+    $effect(() => {
+        // TRACK ALL PROPERTIES THAT SHOULD TRIGGER UPDATES
+        const watchedProcessing = {
+            thumbnails: processing.thumbnails,
+            metadata: processing.metadata,
+            imageResize: processing.imageResize,
+            imageWidth: processing.imageWidth,
+            videoConvert: processing.videoConvert,
+            videoFormat: processing.videoFormat,
+            extractText: processing.extractText,
+            deduplication: processing.deduplication,
+            headless: processing.headless
+        };
+        
+        // NOW UPDATEFORMDATA ONLY RUNS WHEN THESE VALUES CHANGE
+        updateFormData();
+    });
 </script>
+
 <div>
     <h2 class="text-xl font-semibold mb-4">Processing Options</h2>
     <p class="text-dark-300 mb-6">
         Configure how downloaded assets are processed
     </p>
-    <!-- Main options -->
+    
+    <!-- MAIN OPTIONS -->
     <div class="bg-base-800 rounded-lg p-4 mb-6">
         <h3 class="text-sm font-medium mb-4">Basic Processing</h3>
         <div class="grid grid-cols-1 gap-4">
@@ -137,9 +143,28 @@
                     (Skip downloading duplicate assets)
                 </div>
             </div>
+            <div class="flex items-center">
+                <input
+                    id="headless-mode"
+                    type="checkbox"
+                    bind:checked={processing.headless}
+                    onchange={handleInputChange}
+                    class="checkbox checkbox-primary h-4 w-4"
+                />
+                <label
+                    for="headless-mode"
+                    class="ml-2 block text-sm text-white"
+                >
+                    Headless Mode
+                </label>
+                <div class="ml-2 text-xs text-dark-400">
+                    (Run browser without visible UI, faster but less interactive)
+                </div>
+            </div>
         </div>
     </div>
-    <!-- Image processing -->
+    
+    <!-- IMAGE PROCESSING -->
     <div class="bg-base-800 rounded-lg p-4 mb-6">
         <h3 class="text-sm font-medium mb-4">Image Processing</h3>
         <div class="grid grid-cols-1 gap-4">
@@ -180,7 +205,8 @@
             {/if}
         </div>
     </div>
-    <!-- Video processing -->
+    
+    <!-- VIDEO PROCESSING -->
     <div class="bg-base-800 rounded-lg p-4 mb-6">
         <h3 class="text-sm font-medium mb-4">Video Processing</h3>
         <div class="grid grid-cols-1 gap-4">
@@ -224,7 +250,8 @@
             {/if}
         </div>
     </div>
-    <!-- Text extraction -->
+    
+    <!-- TEXT EXTRACTION -->
     <div class="bg-base-800 rounded-lg p-4">
         <h3 class="text-sm font-medium mb-4">Text Extraction</h3>
         <div class="grid grid-cols-1 gap-4">
@@ -242,34 +269,6 @@
                 <div class="ml-2 text-xs text-dark-400">
                     (Extract readable text from PDFs and other documents)
                 </div>
-            </div>
-        </div>
-    </div>
-    <!-- Help note -->
-    <div class="mt-6 bg-base-850 rounded-lg p-4">
-        <div class="flex">
-            <div class="flex-shrink-0">
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    class="h-6 w-6 text-primary-400"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                >
-                    <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                </svg>
-            </div>
-            <div class="ml-3">
-                <p class="text-sm text-dark-300">
-                    More processing options requires more CPU power and storage
-                    space. For large scraping jobs, you may want to disable some
-                    processing features.
-                </p>
             </div>
         </div>
     </div>

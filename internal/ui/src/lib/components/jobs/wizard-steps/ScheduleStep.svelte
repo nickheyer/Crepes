@@ -2,17 +2,12 @@
     import { onMount } from "svelte";
     import { isValidCron } from "$lib/utils/validation";
     import { getCronDescription } from "$lib/utils/formatters";
-    import { createEventDispatcher } from "svelte";
-
-    const dispatch = createEventDispatcher();
-
-    // PROPS
-    let { formData = {} } = $props();
+    import { state as jobState, setStepValidity } from "$lib/stores/jobStore.svelte";
 
     // LOCAL STATE
-    let enableSchedule = $state(formData.schedule ? true : false);
+    let enableSchedule = $state(jobState.formData.data.schedule ? true : false);
     let scheduleType = $state("simple"); // 'simple' or 'advanced'
-    let cronExpression = $state(formData.schedule || "");
+    let cronExpression = $state(jobState.formData.data.schedule || "");
     let frequency = $state("daily");
     let time = $state("00:00");
     let weekday = $state("1"); // Monday
@@ -20,6 +15,7 @@
     let errorMessage = $state("");
     let isValid = $state(true);
     let simpleConfigChanged = $state(false);
+    let lastUpdateTimestamp = $state(Date.now()); // TRACK LAST UPDATE
 
     // FREQUENCY OPTIONS
     const frequencies = [
@@ -48,10 +44,10 @@
 
     // INITIALIZE
     onMount(() => {
-        // Set default values based on existing schedule
-        if (formData.schedule) {
-            // Try to parse the cron expression
-            const parts = formData.schedule.split(" ");
+        // SET DEFAULT VALUES BASED ON EXISTING SCHEDULE
+        if (jobState.formData.data.schedule) {
+            // TRY TO PARSE THE CRON EXPRESSION
+            const parts = jobState.formData.data.schedule.split(" ");
             if (parts.length === 5) {
                 const minute = parts[0];
                 const hour = parts[1];
@@ -59,7 +55,7 @@
                 const month = parts[3];
                 const dow = parts[4];
 
-                // Determine schedule type and set values
+                // DETERMINE SCHEDULE TYPE AND SET VALUES
                 if (dow === "*" && dom === "*") {
                     // Daily or hourly
                     if (minute === "0" && hour !== "*") {
@@ -92,6 +88,7 @@
             }
         }
 
+        // INITIAL UPDATE
         updateCronExpression();
     });
 
@@ -110,21 +107,27 @@
             }
 
             // Build cron expression based on frequency
+            let newCronExpression;
             switch (frequency) {
                 case "hourly":
-                    cronExpression = `0 * * * *`;
+                    newCronExpression = `0 * * * *`;
                     break;
                 case "daily":
-                    cronExpression = `${minutes} ${hours} * * *`;
+                    newCronExpression = `${minutes} ${hours} * * *`;
                     break;
                 case "weekly":
-                    cronExpression = `${minutes} ${hours} * * ${weekday}`;
+                    newCronExpression = `${minutes} ${hours} * * ${weekday}`;
                     break;
                 case "monthly":
-                    cronExpression = `${minutes} ${hours} ${dayOfMonth} * *`;
+                    newCronExpression = `${minutes} ${hours} ${dayOfMonth} * *`;
                     break;
                 default:
-                    cronExpression = "";
+                    newCronExpression = "";
+            }
+            
+            // ONLY UPDATE IF CHANGED
+            if (newCronExpression !== cronExpression) {
+                cronExpression = newCronExpression;
             }
         }
 
@@ -137,6 +140,7 @@
         if (!enableSchedule) {
             isValid = true;
             errorMessage = "";
+            setStepValidity(5, true);
             return true;
         }
 
@@ -145,36 +149,36 @@
             if (!cronExpression) {
                 isValid = false;
                 errorMessage = "Cron expression is required";
+                setStepValidity(5, false);
                 return false;
             }
 
             if (!isValidCron(cronExpression)) {
                 isValid = false;
                 errorMessage = "Invalid cron expression format";
+                setStepValidity(5, false);
                 return false;
             }
         }
 
         isValid = true;
         errorMessage = "";
-        dispatch("validate", isValid);
+        setStepValidity(5, true);
         return true;
     }
 
-    // UPDATE FORM DATA AND VALIDATE
+    // UPDATE FORM DATA WITH VALIDATION
     function updateFormData() {
         const schedule = enableSchedule ? cronExpression : "";
 
-        // ONLY DISPATCH WHEN CHANGED
-        if (schedule !== formData.schedule) {
-            const updatedData = {
-            ...formData,
-            schedule
-            };
-            dispatch("update", updatedData);
+        // ONLY UPDATE IF CHANGED
+        if (jobState.formData.data.schedule !== schedule) {
+            jobState.formData.data.schedule = schedule;
+            // UPDATE TIMESTAMP TO TRACK CHANGES
+            lastUpdateTimestamp = Date.now();
         }
-
-        validate(); // KEEP LOCAL IN SYNC
+        
+        validate();
     }
 
     // HANDLE SIMPLE CONFIG CHANGES
@@ -182,33 +186,42 @@
         simpleConfigChanged = true;
     }
 
-    // WATCH FOR CHANGES
+    // CONSOLIDATED EFFECT FOR SCHEDULE TYPE CHANGES
     $effect(() => {
-        // Only run when scheduleType changes
-        if (scheduleType === "advanced") {
+        const currentScheduleType = scheduleType;
+        
+        if (currentScheduleType === "advanced") {
             validate();
-            updateFormData();
         }
     });
 
-    // HANDLE SIMPLE MODE CHANGES
+    // HANDLE SIMPLE MODE CHANGES - WATCH DEPENDENCIES EXPLICITLY
     $effect(() => {
+        // EXPLICITLY TRACK ALL SIMPLE MODE DEPENDENCIES
+        const tracking = {
+            scheduleType,
+            simpleConfigChanged,
+            frequency,
+            time,
+            weekday,
+            dayOfMonth
+        };
+        
         if (scheduleType === "simple" && simpleConfigChanged) {
             updateCronExpression();
             simpleConfigChanged = false;
         }
     });
 
-    // WATCH ENABLE SCHEDULE CHANGES
+    // CONSOLIDATED EFFECT FOR ENABLE SCHEDULE AND CRON EXPRESSION
     $effect(() => {
+        // TRACK THESE VALUES EXPLICITLY
+        const currentEnableSchedule = enableSchedule;
+        const currentCronExpression = cronExpression;
+        const currentScheduleType = scheduleType;
+        
+        // PREVENT MULTIPLE UPDATES
         updateFormData();
-    });
-
-    // WATCH CRON EXPRESSION CHANGES IN ADVANCED MODE
-    $effect(() => {
-        if (scheduleType === "advanced") {
-            validate();
-        }
     });
 </script>
 
@@ -281,12 +294,13 @@
                             id="frequency"
                             bind:value={frequency}
                             onchange={handleSimpleConfigChange}
-                            class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                            class="select select-bordered w-full"
                         >
                             {#each frequencies as option}
                                 <option value={option.id}>{option.label}</option>
                             {/each}
                         </select>
+                    
                     </div>
 
                     {#if frequency !== "hourly"}
@@ -319,7 +333,7 @@
                                 id="weekday"
                                 bind:value={weekday}
                                 onchange={handleSimpleConfigChange}
-                                class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                                class="select select-bordered w-full"
                             >
                                 {#each weekdays as day}
                                     <option value={day.id}>{day.label}</option>

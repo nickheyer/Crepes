@@ -1,67 +1,69 @@
-import { writable } from 'svelte/store';
+// UI STORE STATE - USING SVELTE 5 RUNES
+export const state = $state({
+  isSidebarOpen: false,
+  toasts: [],
+  activeModals: new Set(),
+  currentTheme: 'default'
+});
 
-// SIDEBAR STATE
-export const isSidebarOpen = writable(false);
-
-// TOAST NOTIFICATIONS
-export const toasts = writable([]);
+// SIDEBAR TOGGLE
+export function toggleSidebar() {
+  state.isSidebarOpen = !state.isSidebarOpen;
+}
 
 // ADD A TOAST NOTIFICATION
 export function addToast(message, type = 'info', duration = 4000) {
   const id = Date.now().toString();
-
-  toasts.update(all => [
-    ...all,
+  
+  state.toasts = [
+    ...state.toasts,
     { id, message, type, duration }
-  ]);
+  ];
 
   return id;
 }
 
 // REMOVE A TOAST NOTIFICATION
 export function removeToast(id) {
-  toasts.update(all => all.filter(t => t.id !== id));
+  state.toasts = state.toasts.filter(t => t.id !== id);
 }
-
-// MODAL STATES
-export const activeModals = writable(new Set());
 
 // OPEN A MODAL
 export function openModal(modalId) {
-  activeModals.update(modals => {
-    modals.add(modalId);
-    return modals;
-  });
+  const newModals = new Set(state.activeModals);
+  newModals.add(modalId);
+  state.activeModals = newModals;
 }
 
 // CLOSE A MODAL
 export function closeModal(modalId) {
-  activeModals.update(modals => {
-    modals.delete(modalId);
-    return modals;
-  });
+  const newModals = new Set(state.activeModals);
+  newModals.delete(modalId);
+  state.activeModals = newModals;
 }
-
-// THEME MANAGEMENT
-export let currentTheme = writable('default');
 
 // APPLY A THEME
 export function applyTheme(theme) {
   // UPDATE THE STATE
-  currentTheme = theme;
-
-  // APPLY TO DOM
-  document.documentElement.setAttribute('data-theme', theme);
+  state.currentTheme = theme;
 
   // SAVE TO LOCAL STORAGE
-  localStorage.setItem('theme', theme);
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem('theme', theme);
+  }
 
   // PUBLISH THEME CHANGE EVENT
-  window.dispatchEvent(new CustomEvent('theme-changed', { detail: { theme } }));
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('theme-changed', { detail: { theme } }));
+  }
 }
 
 // GET THEME FROM LOCAL STORAGE OR API
 export async function initTheme() {
+  if (typeof localStorage === 'undefined' || typeof fetch === 'undefined') {
+    return;
+  }
+  
   // ATTEMPT TO LOAD THEME FROM LOCAL STORAGE
   const savedTheme = localStorage.getItem('theme');
 
@@ -97,4 +99,3 @@ export const availableThemes = [
   { value: "aqua", label: "Aqua" },
   { value: "night", label: "Night" },
 ];
-

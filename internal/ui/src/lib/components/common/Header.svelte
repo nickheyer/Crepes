@@ -4,8 +4,8 @@
         Plus,
         Search,
     } from "lucide-svelte";
-    import { isSidebarOpen } from "$lib/stores/uiStore";
-    import { createJobModal } from "$lib/stores/jobStore";
+    import { state as uiState } from "$lib/stores/uiStore.svelte";
+    import { state as jobState } from "$lib/stores/jobStore.svelte";
     
     // PROPS
     let { currentPage = "dashboard" } = $props();
@@ -20,12 +20,9 @@
     };
     
     function toggleSidebar() {
-        isSidebarOpen.update((open) => !open);
+        uiState.isSidebarOpen = !uiState.isSidebarOpen;
     }
-    
-    function openNewJobModal() {
-        createJobModal.set(true);
-    }
+
 </script>
 <div class="navbar bg-base-300">
     <div class="navbar-start">
@@ -35,12 +32,5 @@
         <h1 class="text-xl font-semibold ml-2">
             {pageTitles[currentPage] || "Crepes"}
         </h1>
-    </div>
-    <div class="navbar-end">
-        <!-- NEW JOB BUTTON - KEEPING THIS FUNCTIONAL -->
-        <button class="btn btn-primary btn-sm" onclick={openNewJobModal}>
-            <Plus size={16} />
-            New Job
-        </button>
     </div>
 </div>

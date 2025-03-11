@@ -1,10 +1,10 @@
 <script>
-    import { createJobModal } from "$lib/stores/jobStore";
-    import { addToast } from "$lib/stores/uiStore";
+    import { state as jobState } from "$lib/stores/jobStore.svelte";
+    import { addToast } from "$lib/stores/uiStore.svelte";
     
     // ACTION FUNCTIONS
     function openNewJobModal() {
-        createJobModal.set(true);
+        jobState.createJobModal = true;
     }
     
     function goToAssets() {

@@ -27,7 +27,7 @@ type Job struct {
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 	Assets      []Asset   `json:"assets,omitempty" gorm:"foreignKey:JobID"`
-	Template    string    `json:"template" gorm:"type:text"` // FERRET TEMPLATE CODE
+	Template    string    `json:"template" gorm:"type:text"` // TEMPLATE ID IF USED TO CREATE JOB
 }
 
 // ASSET MODEL
@@ -58,7 +58,6 @@ type Template struct {
 	Rules       JSONMap   `json:"rules" gorm:"type:text"`
 	Processing  JSONMap   `json:"processing" gorm:"type:text"`
 	Tags        JSONArray `json:"tags" gorm:"type:text"`
-	Template    string    `json:"template" gorm:"type:text"` // FERRET TEMPLATE CODE
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
@@ -164,6 +163,7 @@ func (job *Job) BeforeCreate(tx *gorm.DB) (err error) {
 			"thumbnails":    true,
 			"metadata":      true,
 			"deduplication": true,
+			"headless":      true,
 		}
 	}
 	if job.Tags == nil {
@@ -189,6 +189,7 @@ func (template *Template) BeforeCreate(tx *gorm.DB) (err error) {
 			"thumbnails":    true,
 			"metadata":      true,
 			"deduplication": true,
+			"headless":      true,
 		}
 	}
 	if template.Tags == nil {

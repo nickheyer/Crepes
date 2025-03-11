@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/nickheyer/Crepes/internal/models"
-
 	"github.com/robfig/cron/v3"
 	"gorm.io/gorm"
 )

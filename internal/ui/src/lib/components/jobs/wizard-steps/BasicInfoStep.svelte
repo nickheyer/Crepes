@@ -1,19 +1,9 @@
 <script>
   import { onMount } from "svelte";
-  import { createEventDispatcher } from "svelte";
   import { isValidUrl, validateField } from "$lib/utils/validation";
-  
-  // Create dispatch function
-  const dispatch = createEventDispatcher();
-  
-  // Props
-  let { formData = {} } = $props();
+  import { state as jobState } from "$lib/stores/jobStore.svelte";
   
   // Local state
-  let jobName = $state(formData.name || "");
-  let baseUrl = $state(formData.baseUrl || "");
-  let description = $state(formData.description || "");
-  let tags = $state(formData.tags || []);
   let newTag = $state("");
   
   // Validation state
@@ -31,7 +21,7 @@
       description: "",
     };
     // Validate job name
-    const nameValidation = validateField(jobName, {
+    const nameValidation = validateField(jobState.formData.data.name, {
       required: true,
       minLength: 3,
       maxLength: 50,
@@ -40,47 +30,36 @@
       newErrors.jobName = nameValidation.message;
     }
     // Validate base URL
-    if (!baseUrl) {
+    if (!jobState.formData.data.baseUrl) {
       newErrors.baseUrl = "Base URL is required";
-    } else if (!isValidUrl(baseUrl)) {
+    } else if (!isValidUrl(jobState.formData.data.baseUrl)) {
       newErrors.baseUrl = "Please enter a valid URL";
     }
     // Validate description (optional)
-    if (description && description.length > 500) {
+    if (jobState.formData.data.description && jobState.formData.data.description.length > 500) {
       newErrors.description = "Description should be 500 characters or less";
     }
     errors = newErrors;
     // Step is valid if there are no errors
     const isValid = !Object.values(newErrors).some((error) => error);
-    // Emit validation result
-    dispatch("validate", isValid);
     return isValid;
   }
   
   // Update formData and validate
   function updateFormData() {
-    const updatedData = {
-      name: jobName,
-      baseUrl,
-      description,
-      tags: [...tags],
-    };
-    const isValid = validate();
-    if (isValid) {
-      dispatch("update", updatedData);
-    }
+    validate();
   }
   
   function addTag() {
-    if (newTag && !tags.includes(newTag)) {
-      tags = [...tags, newTag];
+    if (newTag && !jobState.formData.data.tags.includes(newTag)) {
+      jobState.formData.data.tags = [...jobState.formData.data.tags, newTag];
       newTag = "";
       updateFormData();
     }
   }
   
   function removeTag(tag) {
-    tags = tags.filter((t) => t !== tag);
+    jobState.formData.data.tags = jobState.formData.data.tags.filter((t) => t !== tag);
     updateFormData();
   }
   
@@ -108,7 +87,7 @@
       <input
         id="job-name"
         type="text"
-        bind:value={jobName}
+        bind:value={jobState.formData.data.name}
         class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 {errors.jobName
           ? 'border-danger-500'
           : ''}"
@@ -126,7 +105,7 @@
       <input
         id="base-url"
         type="url"
-        bind:value={baseUrl}
+        bind:value={jobState.formData.data.baseUrl}
         class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 {errors.baseUrl
           ? 'border-danger-500'
           : ''}"
@@ -147,7 +126,7 @@
       >
       <textarea
         id="description"
-        bind:value={description}
+        bind:value={jobState.formData.data.description}
         class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 {errors.description
           ? 'border-danger-500'
           : ''}"
@@ -158,7 +137,7 @@
         <p class="mt-1 text-sm text-danger-500">{errors.description}</p>
       {:else}
         <p class="mt-1 text-sm text-dark-400">
-          {description.length}/500 characters
+          {jobState.formData.data.description.length}/500 characters
         </p>
       {/if}
     </div>
@@ -184,9 +163,9 @@
           Add
         </button>
       </div>
-      {#if tags.length > 0}
+      {#if jobState.formData.data.tags.length > 0}
         <div class="mt-2 flex flex-wrap gap-2">
-          {#each tags as tag}
+          {#each jobState.formData.data.tags as tag}
             <div
               class="flex items-center bg-base-700 text-sm rounded-full px-3 py-1"
             >

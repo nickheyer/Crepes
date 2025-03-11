@@ -1,18 +1,10 @@
 <script>
     import { onMount } from "svelte";
-    import { createEventDispatcher } from "svelte";
-    import Button from "$lib/components/common/Button.svelte";
     import VisualSelector from "../VisualSelector.svelte";
+    import { state as jobState, setStepValidity } from "$lib/stores/jobStore.svelte";
     
-    // Create dispatch function
-    const dispatch = createEventDispatcher();
-    
-    // Props
-    let { formData = {} } = $props();
-    
-    // Local state
-    let selectors = $state(formData.selectors || []);
-    let currentView = $state("list"); // 'list' or 'visual'
+    // LOCAL STATE
+    let view = $state("list"); // 'list' OR 'visual'
     let newSelector = $state({
         id: "",
         name: "",
@@ -27,60 +19,44 @@
         urlPattern: "",
     });
     let editingIndex = $state(-1);
-    let visualUrl = $state(formData.baseUrl || "");
+    let selectedVisualElement = $state(null);
+    let selectedVisualElements = $state([]);
     let isValid = $state(false);
-    let shouldUpdateFormData = $state(false);
     
-    // Purpose options
-    const purposeOptions = [
-        {
-            id: "assets",
-            label: "Media/Assets",
-            description: "Extract images, videos, or other media assets",
-        },
-        {
-            id: "links",
-            label: "Links",
-            description: "Follow links to new pages for crawling",
-        },
-        {
-            id: "pagination",
-            label: "Pagination",
-            description: "Navigate through paginated content",
-        },
-        {
-            id: "metadata",
-            label: "Metadata",
-            description: "Extract metadata like titles, descriptions, etc.",
-        },
-    ];
-    
+    // INITIALIZE
     onMount(() => {
         resetNewSelector();
         validate();
     });
     
-    function handleSelectionChange(event) {
-        const selection = event.detail;
-        if (selection && selection.elements && selection.elements.length > 0) {
-            const cssPath = selection.elements[0].cssPath;
-            if (editingIndex >= 0) {
-                selectors[editingIndex].value = cssPath;
-                selectors[editingIndex].purpose = selection.type || "assets";
-                // Set default attribute based on purpose
-                selectors[editingIndex].attribute = getDefaultAttributeForPurpose(selection.type || "assets");
-            } else {
-                newSelector.value = cssPath;
-                newSelector.purpose = selection.type || "assets";
-                // Set default attribute based on purpose
-                newSelector.attribute = getDefaultAttributeForPurpose(selection.type || "assets");
-            }
-            shouldUpdateFormData = true;
-            updateFormData();
+    // WATCH FOR SELECTIONS FROM VISUAL SELECTOR
+    $effect(() => {
+        if (selectedVisualElement) {
+            // POPULATE FORM WITH SELECTED ELEMENT DATA
+            newSelector = {
+                id: generateId(),
+                name: `${selectedVisualElement.purpose} - ${selectedVisualElement.tag}`,
+                type: "css",
+                value: selectedVisualElement.cssPath,
+                attribute: selectedVisualElement.attribute,
+                purpose: selectedVisualElement.purpose,
+                description: selectedVisualElement.text ? `Extracts: ${selectedVisualElement.text}` : "",
+                priority: 0,
+                isOptional: false,
+                urlPattern: ""
+            };
+            
+            // SWITCH TO LIST VIEW TO ALLOW EDITING
+            view = "list";
         }
-    }
+    });
     
-    // Get default attribute based on purpose
+    // AUTOMATICALLY UPDATE FORM DATA WHEN SELECTORS CHANGE
+    $effect(() => {
+        validate();
+    });
+    
+    // GET DEFAULT ATTRIBUTE BASED ON PURPOSE
     function getDefaultAttributeForPurpose(purpose) {
         switch(purpose) {
             case "links":
@@ -95,53 +71,61 @@
         }
     }
     
-    // Set default attribute when purpose changes
-    function handlePurposeChange(e) {
-        const purpose = e.target.value;
-        newSelector.attribute = getDefaultAttributeForPurpose(purpose);
-        shouldUpdateFormData = true;
-        updateFormData();
+    // SET DEFAULT ATTRIBUTE WHEN PURPOSE CHANGES
+    function handlePurposeChange() {
+        newSelector.attribute = getDefaultAttributeForPurpose(newSelector.purpose);
     }
     
-    // Add or update a selector
+    // ADD OR UPDATE A SELECTOR
     function addSelector() {
         if (!newSelector.name || !newSelector.value) return;
+        
+        // GENERATE NEW ID IF ADDING
+        if (editingIndex < 0) {
+            newSelector.id = generateId();
+        }
+        
         if (editingIndex >= 0) {
-            // Update existing selector
-            selectors[editingIndex] = { ...newSelector };
+            // UPDATE EXISTING SELECTOR
+            jobState.formData.data.selectors[editingIndex] = { ...newSelector };
             editingIndex = -1;
         } else {
-            // Add new selector
-            selectors = [...selectors, { ...newSelector }];
+            // ADD NEW SELECTOR
+            jobState.formData.data.selectors = [...jobState.formData.data.selectors, { ...newSelector }];
         }
-        // Reset form
+        
+        // RESET FORM
         resetNewSelector();
-        shouldUpdateFormData = true;
-        updateFormData();
+        
+        // Validate after adding
+        validate();
     }
     
-    // Edit a selector
+    // EDIT A SELECTOR
     function editSelector(index) {
-        newSelector = { ...selectors[index] };
+        newSelector = { ...jobState.formData.data.selectors[index] };
         editingIndex = index;
-        // Switch to form view if in visual mode
-        if (currentView === "visual") {
-            currentView = "list";
+        
+        // SWITCH TO FORM VIEW IF IN VISUAL MODE
+        if (view === "visual") {
+            view = "list";
         }
     }
     
-    // Remove a selector
+    // REMOVE A SELECTOR
     function removeSelector(index) {
-        selectors = selectors.filter((_, i) => i !== index);
+        jobState.formData.data.selectors = jobState.formData.data.selectors.filter((_, i) => i !== index);
+        
         if (editingIndex === index) {
             resetNewSelector();
             editingIndex = -1;
         }
-        shouldUpdateFormData = true;
-        updateFormData();
+        
+        // Validate after removing
+        validate();
     }
     
-    // Reset the new selector form
+    // RESET THE NEW SELECTOR FORM
     function resetNewSelector() {
         newSelector = {
             id: generateId(),
@@ -159,44 +143,28 @@
         editingIndex = -1;
     }
     
-    // Generate a random ID
+    // GENERATE A RANDOM ID
     function generateId() {
         return "sel_" + Math.random().toString(36).substring(2, 11);
     }
     
-    // Switch between list and visual views
-    function switchView(view) {
-        currentView = view;
+    // SWITCH BETWEEN LIST AND VISUAL VIEWS
+    function switchView(newView) {
+        view = newView;
     }
     
-    // Validate the step
+    // VALIDATE THE STEP
     function validate() {
-        // Check if we have at least one selector
-        const hasLinks = selectors.some((sel) => sel.purpose === "links");
-        const hasAssets = selectors.some((sel) => sel.purpose === "assets");
-        isValid = selectors.length > 0 && hasLinks && hasAssets;
-        dispatch("validate", isValid);
+        // CHECK IF WE HAVE AT LEAST ONE SELECTOR
+        const hasLinks = jobState.formData.data.selectors.some((sel) => sel.purpose === "links");
+        const hasAssets = jobState.formData.data.selectors.some((sel) => sel.purpose === "assets");
+        isValid = jobState.formData.data.selectors.length > 0 && hasLinks && hasAssets;
+        
+        // Update step validity in the store
+        setStepValidity(2, isValid);
+        
         return isValid;
     }
-    
-    // Update form data and validate without causing a reactive loop
-    function updateFormData() {
-        if (!shouldUpdateFormData) return;
-        
-        const updatedData = {
-            ...formData,
-            selectors: [...selectors],
-        };
-        
-        const isValid = validate();
-        if (isValid) {
-            dispatch("update", updatedData);
-        }
-        
-        // Reset the flag to prevent loops
-        shouldUpdateFormData = false;
-    }
-
 </script>
 
 <div>
@@ -204,10 +172,11 @@
     <p class="text-dark-300 mb-6">
         Define what content to extract with CSS or XPath selectors
     </p>
-    <!-- View switcher -->
+    
+    <!-- VIEW SWITCHER -->
     <div class="flex border border-dark-700 rounded-lg mb-6 overflow-hidden">
         <button
-            class={`flex-1 py-3 px-4 focus:outline-none ${currentView === "list" ? "bg-base-700 text-white" : "bg-base-800 text-dark-300 hover:bg-base-750"}`}
+            class={`flex-1 py-3 px-4 focus:outline-none ${view === "list" ? "bg-base-700 text-white" : "bg-base-800 text-dark-300 hover:bg-base-750"}`}
             onclick={() => switchView("list")}
         >
             <svg
@@ -225,7 +194,7 @@
             List View
         </button>
         <button
-            class={`flex-1 py-3 px-4 focus:outline-none ${currentView === "visual" ? "bg-base-700 text-white" : "bg-base-800 text-dark-300 hover:bg-base-750"}`}
+            class={`flex-1 py-3 px-4 focus:outline-none ${view === "visual" ? "bg-base-700 text-white" : "bg-base-800 text-dark-300 hover:bg-base-750"}`}
             onclick={() => switchView("visual")}
         >
             <svg
@@ -244,11 +213,11 @@
         </button>
     </div>
 
-    {#if currentView === "list"}
-        <!-- Selector list view -->
+    {#if view === "list"}
+        <!-- SELECTOR LIST VIEW -->
         <div>
-            <!-- Existing selectors -->
-            {#if selectors.length > 0}
+            <!-- EXISTING SELECTORS -->
+            {#if jobState.formData.data.selectors && jobState.formData.data.selectors.length > 0}
                 <div class="mb-6">
                     <h3 class="text-sm font-medium text-dark-300 mb-3">
                         Current Selectors
@@ -280,7 +249,7 @@
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-dark-700">
-                                {#each selectors as selector, i}
+                                {#each jobState.formData.data.selectors as selector, i}
                                     <tr class="hover:bg-base-750">
                                         <td class="px-4 py-3 whitespace-nowrap">
                                             <div class="text-sm font-medium">
@@ -297,15 +266,10 @@
                                         <td class="px-4 py-3 whitespace-nowrap">
                                             <span
                                                 class={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full 
-                          ${
-                              selector.purpose === "assets"
-                                  ? "bg-blue-500 text-blue-100"
-                                  : selector.purpose === "links"
-                                    ? "bg-green-500 text-green-100"
-                                    : selector.purpose === "pagination"
-                                      ? "bg-yellow-500 text-yellow-100"
-                                      : "bg-purple-500 text-purple-100"
-                          }`}
+                                                ${selector.purpose === "assets" ? "bg-blue-500 text-blue-100" : 
+                                                  selector.purpose === "links" ? "bg-green-500 text-green-100" : 
+                                                  selector.purpose === "pagination" ? "bg-yellow-500 text-yellow-100" : 
+                                                  "bg-purple-500 text-purple-100"}`}
                                             >
                                                 {selector.purpose}
                                             </span>
@@ -328,8 +292,7 @@
                                             </button>
                                             <button
                                                 class="text-danger-400 hover:text-danger-300"
-                                                onclick={() =>
-                                                    removeSelector(i)}
+                                                onclick={() => removeSelector(i)}
                                             >
                                                 Delete
                                             </button>
@@ -342,7 +305,7 @@
                 </div>
             {/if}
 
-            <!-- Selector form -->
+            <!-- SELECTOR FORM -->
             <div class="bg-base-800 rounded-lg p-4 mb-6">
                 <h3 class="text-sm font-medium mb-4">
                     {editingIndex >= 0 ? "Edit Selector" : "Add New Selector"}
@@ -374,12 +337,13 @@
                         <select
                             id="selector-purpose"
                             bind:value={newSelector.purpose}
-                            class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                            onchange={handlePurposeChange}
+                            class="select select-bordered w-full"
                         >
-                            {#each purposeOptions as option}
-                                <option value={option.id}>{option.label}</option
-                                >
-                            {/each}
+                            <option value="assets">Assets (images, videos)</option>
+                            <option value="links">Links (URLs to follow)</option>
+                            <option value="pagination">Pagination</option>
+                            <option value="metadata">Metadata</option>
                         </select>
                     </div>
 
@@ -393,7 +357,7 @@
                         <select
                             id="selector-type"
                             bind:value={newSelector.type}
-                            class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                            class="select select-bordered w-full"
                         >
                             <option value="css">CSS Selector</option>
                             <option value="xpath">XPath</option>
@@ -410,16 +374,13 @@
                         <select
                             id="selector-attribute"
                             bind:value={newSelector.attribute}
-                            class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                            class="select select-bordered w-full"
                         >
-                            <option value="src">src (for images, videos)</option
-                            >
+                            <option value="src">src (for images, videos)</option>
                             <option value="href">href (for links)</option>
                             <option value="text">text content</option>
                             <option value="html">HTML content</option>
-                            <option value="data-src"
-                                >data-src (lazy loading)</option
-                            >
+                            <option value="data-src">data-src (lazy loading)</option>
                             <option value="alt">alt (image description)</option>
                             <option value="title">title attribute</option>
                         </select>
@@ -430,8 +391,7 @@
                             for="selector-value"
                             class="block text-sm font-medium text-dark-300 mb-1"
                         >
-                            Selector Value <span class="text-danger-500">*</span
-                            >
+                            Selector Value <span class="text-danger-500">*</span>
                         </label>
                         <input
                             id="selector-value"
@@ -440,26 +400,6 @@
                             placeholder="E.g., .product-image img"
                             class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                         />
-                    </div>
-
-                    <div class="sm:col-span-2">
-                        <label
-                            for="selector-url-pattern"
-                            class="block text-sm font-medium text-dark-300 mb-1"
-                        >
-                            URL Pattern (optional)
-                        </label>
-                        <input
-                            id="selector-url-pattern"
-                            type="text"
-                            bind:value={newSelector.urlPattern}
-                            placeholder="E.g., /product/.* (regex)"
-                            class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                        />
-                        <p class="mt-1 text-xs text-dark-400">
-                            Only apply this selector to URLs matching this
-                            pattern (regex)
-                        </p>
                     </div>
 
                     <div class="sm:col-span-2">
@@ -496,21 +436,24 @@
 
                 <div class="mt-4 flex justify-end space-x-3">
                     {#if editingIndex >= 0}
-                        <Button variant="outline" onclick={resetNewSelector}>
+                        <button
+                            class="px-3 py-1.5 text-sm border border-dark-600 rounded-md focus:outline-none hover:bg-base-700"
+                            onclick={resetNewSelector}
+                        >
                             Cancel
-                        </Button>
+                        </button>
                     {/if}
-                    <Button
-                        variant="primary"
+                    <button
+                        class="px-3 py-1.5 text-sm bg-primary-600 text-white rounded-md focus:outline-none hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
                         onclick={addSelector}
                         disabled={!newSelector.name || !newSelector.value}
                     >
                         {editingIndex >= 0 ? "Update Selector" : "Add Selector"}
-                    </Button>
+                    </button>
                 </div>
             </div>
 
-            <!-- Help section -->
+            <!-- HELP SECTION -->
             <div class="bg-base-850 rounded-lg p-4">
                 <h4 class="text-sm font-medium mb-2">Selector Tips</h4>
                 <ul class="text-xs text-dark-300 list-disc pl-5 space-y-1">
@@ -520,8 +463,7 @@
                         (to find content to download)
                     </li>
                     <li>
-                        Use Chrome DevTools to help find the right selectors
-                        (right-click an element and select "Inspect")
+                        Try switching to the <strong>Visual Selector</strong> tab to easily pick elements from the page
                     </li>
                     <li>
                         For images, use <code
@@ -545,19 +487,16 @@
                             >href</code
                         > attribute
                     </li>
-                    <li>
-                        Pagination selectors help navigate through multiple
-                        pages
-                    </li>
                 </ul>
             </div>
         </div>
     {:else}
-        <!-- Visual selector view -->
-        <div class="h-[500px]">
+        <!-- VISUAL SELECTOR VIEW -->
+        <div class="bg-base-800 rounded-lg overflow-hidden">
             <VisualSelector
-                url={visualUrl}
-                onSelectionChange={handleSelectionChange}
+                url={jobState.formData.data.baseUrl}
+                bind:selectedElement={selectedVisualElement}
+                bind:selectedElements={selectedVisualElements}
             />
         </div>
     {/if}

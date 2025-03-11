@@ -1,10 +1,11 @@
 <script>
+    import { createEventDispatcher } from "svelte";
     import { formatFileSize, formatDate } from "$lib/utils/formatters";
     import {
         removeAsset,
         regenerateAssetThumbnail,
-    } from "$lib/stores/assetStore";
-    import { addToast } from "$lib/stores/uiStore";
+    } from "$lib/stores/assetStore.svelte";
+    import { addToast } from "$lib/stores/uiStore.svelte";
     
     // PROPS
     let { asset = {} } = $props();
@@ -29,15 +30,16 @@
     }
     
     async function handleDelete() {
-        if (!confirm("Are you sure you want to delete this asset?")) {
+        if (!confirm("ARE YOU SURE YOU WANT TO DELETE THIS ASSET?")) {
             return;
         }
+        
         try {
             loading = true;
             await removeAsset(asset.id);
-            addToast("Asset deleted successfully", "success");
+            addToast("ASSET DELETED SUCCESSFULLY", "success");
         } catch (error) {
-            addToast(`Failed to delete asset: ${error.message}`, "error");
+            addToast(`FAILED TO DELETE ASSET: ${error.message}`, "error");
         } finally {
             loading = false;
             closeMenu();
@@ -48,10 +50,10 @@
         try {
             loading = true;
             await regenerateAssetThumbnail(asset.id);
-            addToast("Thumbnail regenerated successfully", "success");
+            addToast("THUMBNAIL REGENERATED SUCCESSFULLY", "success");
         } catch (error) {
             addToast(
-                `Failed to regenerate thumbnail: ${error.message}`,
+                `FAILED TO REGENERATE THUMBNAIL: ${error.message}`,
                 "error",
             );
         } finally {
@@ -62,27 +64,29 @@
     
     function downloadAsset() {
         if (!asset.localPath) {
-            addToast("This asset does not have a local file", "error");
+            addToast("THIS ASSET DOES NOT HAVE A LOCAL FILE", "error");
             return;
         }
+        
         const link = document.createElement("a");
-        link.href = `/assets/${asset.localPath}`;
+        link.href = `/api/assets/${asset.localPath}`;
         link.download = asset.title || "download";
         link.click();
         closeMenu();
     }
 </script>
+
 <div
     class="bg-base-800 rounded-lg overflow-hidden shadow hover:shadow-lg transition-shadow duration-200"
 >
-    <!-- Thumbnail/Preview -->
+    <!-- THUMBNAIL/PREVIEW -->
     <button
         class="w-full aspect-square bg-base-700 overflow-hidden group relative"
         onclick={viewAsset}
     >
         {#if asset.thumbnailPath}
             <img
-                src={`/thumbnails/${asset.thumbnailPath}`}
+                src={`/api/thumbnails/${asset.thumbnailPath}`}
                 alt={asset.title || "Asset"}
                 class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
             />
@@ -103,7 +107,8 @@
                 {/if}
             </div>
         {/if}
-        <!-- Overlay with view button on hover -->
+        
+        <!-- OVERLAY WITH VIEW BUTTON ON HOVER -->
         <div
             class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all duration-200 flex items-center justify-center opacity-0 group-hover:opacity-100"
         >
@@ -113,14 +118,16 @@
                 View
             </span>
         </div>
-        <!-- Type badge -->
+        
+        <!-- TYPE BADGE -->
         <div
             class="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-base-900 bg-opacity-80 text-xs font-medium text-white"
         >
             {asset.type}
         </div>
     </button>
-    <!-- Content -->
+    
+    <!-- CONTENT -->
     <div class="p-3">
         <div class="flex items-start justify-between">
             <h3
@@ -129,7 +136,8 @@
             >
                 {asset.title || "Untitled"}
             </h3>
-            <!-- Menu Button -->
+            
+            <!-- MENU BUTTON -->
             <div class="relative ml-2">
                 <button
                     class="p-1 rounded-full hover:bg-base-700 text-dark-300 hover:text-white focus:outline-none"
@@ -147,6 +155,7 @@
                         />
                     </svg>
                 </button>
+                
                 {#if isMenuOpen}
                     <div
                         class="absolute right-0 mt-1 w-48 rounded-md shadow-lg py-1 bg-base-700 ring-1 ring-black ring-opacity-5 z-10"
@@ -187,6 +196,7 @@
                 {/if}
             </div>
         </div>
+        
         {#if asset.description}
             <p
                 class="mt-1 text-xs text-dark-300 line-clamp-2"
@@ -195,6 +205,7 @@
                 {asset.description}
             </p>
         {/if}
+        
         <div
             class="mt-2 flex justify-between items-center text-xs text-dark-400"
         >
@@ -207,7 +218,8 @@
         </div>
     </div>
 </div>
-<!-- Close menu when clicking outside -->
+
+<!-- CLOSE MENU WHEN CLICKING OUTSIDE -->
 {#if isMenuOpen}
     <div
         class="fixed inset-0 z-0"

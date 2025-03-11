@@ -7,7 +7,7 @@
         Info,
         X
     } from "lucide-svelte";
-    import { removeToast } from "$lib/stores/uiStore";
+    import { removeToast } from "$lib/stores/uiStore.svelte";
     
     // Props
     let {

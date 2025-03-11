@@ -8,7 +8,6 @@
     HelpCircle,
     User
   } from "lucide-svelte";
-  import { isSidebarOpen } from "$lib/stores/uiStore";
   
   // PROPS
   let { currentPage = "dashboard" } = $props();

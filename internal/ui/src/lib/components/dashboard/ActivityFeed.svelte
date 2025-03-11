@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { formatRelativeTime } from '$lib/utils/formatters';
-  import { jobs, loadJobs } from '$lib/stores/jobStore';
+  import { state as jobState, loadJobs } from "$lib/stores/jobStore.svelte";
   
   // ACTIVITY STATE
   let activities = $state([]);
@@ -9,14 +9,14 @@
   
   // GENERATE ACTIVITIES FROM JOBS
   $effect(() => {
-    if ($jobs.length > 0) {
+    if (jobState.jobs.length > 0) {
       generateActivities();
       loading = false;
     }
   });
   
   onMount(async () => {
-    if ($jobs.length === 0) {
+    if (jobState.jobs.length === 0) {
       await loadJobs();
     } else {
       generateActivities();
@@ -29,7 +29,7 @@
     const allActivities = [];
     
     // Add job status changes
-    $jobs.forEach(job => {
+    jobState.jobs.forEach(job => {
       if (job.lastRun) {
         allActivities.push({
           id: `job-run-${job.id}`,

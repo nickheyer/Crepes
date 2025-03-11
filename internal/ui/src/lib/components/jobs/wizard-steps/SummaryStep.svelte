@@ -1,24 +1,11 @@
 <script>
     import { onMount } from "svelte";
-    import { createEventDispatcher } from "svelte";
     import { getCronDescription } from "$lib/utils/formatters";
+    import { state as jobState, setStepValidity } from "$lib/stores/jobStore.svelte";
 
-    const dispatch = createEventDispatcher();
-
-
-    // Props
-    let { formData = {} } = $props();
-
-    // Initialize
     onMount(() => {
-        validate();
+        setStepValidity(6, true);
     });
-
-    // Validate the step (always valid as it's just a summary)
-    function validate() {
-        dispatch("validate", true);
-        return true;
-    }
 </script>
 
 <div>
@@ -37,20 +24,20 @@
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <p class="text-xs text-dark-400">Job Name</p>
-                    <p class="text-sm">{formData.name || "Unnamed Job"}</p>
+                    <p class="text-sm">{jobState.formData.data.name || "Unnamed Job"}</p>
                 </div>
 
                 <div>
                     <p class="text-xs text-dark-400">Base URL</p>
                     <p class="text-sm break-all">
-                        {formData.baseUrl || "No URL specified"}
+                        {jobState.formData.data.baseUrl || "No URL specified"}
                     </p>
                 </div>
 
-                {#if formData.description}
+                {#if jobState.formData.data.description}
                     <div class="md:col-span-2">
                         <p class="text-xs text-dark-400">Description</p>
-                        <p class="text-sm">{formData.description}</p>
+                        <p class="text-sm">{jobState.formData.data.description}</p>
                     </div>
                 {/if}
             </div>
@@ -62,7 +49,7 @@
                 Content Selectors
             </h3>
 
-            {#if formData.selectors && formData.selectors.length > 0}
+            {#if jobState.formData.data.selectors && jobState.formData.data.selectors.length > 0}
                 <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-dark-700">
                         <thead>
@@ -86,7 +73,7 @@
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-dark-700">
-                            {#each formData.selectors as selector}
+                            {#each jobState.formData.data.selectors as selector}
                                 <tr class="hover:bg-base-750">
                                     <td
                                         class="px-3 py-2 whitespace-nowrap text-sm"
@@ -136,12 +123,12 @@
             </h3>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {#if formData.rules}
+                {#if jobState.formData.data.rules}
                     <div>
                         <p class="text-xs text-dark-400">Maximum Depth</p>
                         <p class="text-sm">
-                            {formData.rules.maxDepth || "0"}
-                            {parseInt(formData.rules.maxDepth) === 0
+                            {jobState.formData.data.rules.maxDepth || "0"}
+                            {parseInt(jobState.formData.data.rules.maxDepth) === 0
                                 ? "(unlimited)"
                                 : ""}
                         </p>
@@ -150,8 +137,8 @@
                     <div>
                         <p class="text-xs text-dark-400">Maximum Assets</p>
                         <p class="text-sm">
-                            {formData.rules.maxAssets || "0"}
-                            {parseInt(formData.rules.maxAssets) === 0
+                            {jobState.formData.data.rules.maxAssets || "0"}
+                            {parseInt(jobState.formData.data.rules.maxAssets) === 0
                                 ? "(unlimited)"
                                 : ""}
                         </p>
@@ -160,8 +147,8 @@
                     <div>
                         <p class="text-xs text-dark-400">Maximum Pages</p>
                         <p class="text-sm">
-                            {formData.rules.maxPages || "0"}
-                            {parseInt(formData.rules.maxPages) === 0
+                            {jobState.formData.data.rules.maxPages || "0"}
+                            {parseInt(jobState.formData.data.rules.maxPages) === 0
                                 ? "(unlimited)"
                                 : ""}
                         </p>
@@ -172,28 +159,28 @@
                             Concurrent Connections
                         </p>
                         <p class="text-sm">
-                            {formData.rules.maxConcurrent || "5"}
+                            {jobState.formData.data.rules.maxConcurrent || "5"}
                         </p>
                     </div>
 
-                    {#if formData.rules.includeUrlPattern}
+                    {#if jobState.formData.data.rules.includeUrlPattern}
                         <div>
                             <p class="text-xs text-dark-400">
                                 Include URLs (regex)
                             </p>
                             <p class="text-sm font-mono">
-                                {formData.rules.includeUrlPattern}
+                                {jobState.formData.data.rules.includeUrlPattern}
                             </p>
                         </div>
                     {/if}
 
-                    {#if formData.rules.excludeUrlPattern}
+                    {#if jobState.formData.data.rules.excludeUrlPattern}
                         <div>
                             <p class="text-xs text-dark-400">
                                 Exclude URLs (regex)
                             </p>
                             <p class="text-sm font-mono">
-                                {formData.rules.excludeUrlPattern}
+                                {jobState.formData.data.rules.excludeUrlPattern}
                             </p>
                         </div>
                     {/if}
@@ -206,11 +193,11 @@
                 {/if}
             </div>
 
-            {#if formData.filters && formData.filters.length > 0}
+            {#if jobState.formData.data.filters && jobState.formData.data.filters.length > 0}
                 <div class="mt-4">
                     <p class="text-xs text-dark-400 mb-2">Custom Filters</p>
                     <ul class="space-y-1 text-sm">
-                        {#each formData.filters as filter}
+                        {#each jobState.formData.data.filters as filter}
                             <li class="flex items-center">
                                 <span
                                     class={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium 
@@ -230,7 +217,7 @@
         </div>
 
         <!-- Processing Options -->
-        {#if formData.processing}
+        {#if jobState.formData.data.processing}
             <div class="bg-base-800 rounded-lg p-4">
                 <h3 class="text-sm font-medium text-primary-400 mb-3">
                     Processing Options
@@ -240,14 +227,14 @@
                     <div>
                         <p class="text-xs text-dark-400">Generate Thumbnails</p>
                         <p class="text-sm">
-                            {formData.processing.thumbnails ? "Yes" : "No"}
+                            {jobState.formData.data.processing.thumbnails ? "Yes" : "No"}
                         </p>
                     </div>
 
                     <div>
                         <p class="text-xs text-dark-400">Extract Metadata</p>
                         <p class="text-sm">
-                            {formData.processing.metadata ? "Yes" : "No"}
+                            {jobState.formData.data.processing.metadata ? "Yes" : "No"}
                         </p>
                     </div>
 
@@ -256,15 +243,15 @@
                             Enable Deduplication
                         </p>
                         <p class="text-sm">
-                            {formData.processing.deduplication ? "Yes" : "No"}
+                            {jobState.formData.data.processing.deduplication ? "Yes" : "No"}
                         </p>
                     </div>
 
                     <div>
                         <p class="text-xs text-dark-400">Resize Images</p>
                         <p class="text-sm">
-                            {#if formData.processing.imageResize}
-                                Yes (max width: {formData.processing
+                            {#if jobState.formData.data.processing.imageResize}
+                                Yes (max width: {jobState.formData.data.processing
                                     .imageWidth}px)
                             {:else}
                                 No
@@ -273,10 +260,17 @@
                     </div>
 
                     <div>
+                        <p class="text-xs text-dark-400">Headless Mode</p>
+                        <p class="text-sm">
+                            {jobState.formData.data.processing.headless ? "Yes (Browser runs in background)" : "No (Browser UI is visible)"}
+                        </p>
+                    </div>
+
+                    <div>
                         <p class="text-xs text-dark-400">Convert Videos</p>
                         <p class="text-sm">
-                            {#if formData.processing.videoConvert}
-                                Yes (to {formData.processing.videoFormat.toUpperCase()})
+                            {#if jobState.formData.data.processing.videoConvert}
+                                Yes (to {jobState.formData.data.processing.videoFormat.toUpperCase()})
                             {:else}
                                 No
                             {/if}
@@ -288,7 +282,7 @@
                             Extract Text from Documents
                         </p>
                         <p class="text-sm">
-                            {formData.processing.extractText ? "Yes" : "No"}
+                            {jobState.formData.data.processing.extractText ? "Yes" : "No"}
                         </p>
                     </div>
                 </div>
@@ -299,12 +293,12 @@
         <div class="bg-base-800 rounded-lg p-4">
             <h3 class="text-sm font-medium text-primary-400 mb-3">Schedule</h3>
 
-            {#if formData.schedule}
+            {#if jobState.formData.data.schedule}
                 <div>
                     <p class="text-xs text-dark-400">Cron Schedule</p>
-                    <p class="text-sm font-mono">{formData.schedule}</p>
+                    <p class="text-sm font-mono">{jobState.formData.data.schedule}</p>
                     <p class="text-xs text-dark-300 mt-1">
-                        {getCronDescription(formData.schedule)}
+                        {getCronDescription(jobState.formData.data.schedule)}
                     </p>
                 </div>
             {:else}

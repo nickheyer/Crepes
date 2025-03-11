@@ -1,12 +1,11 @@
 <script>
     import { onMount } from "svelte";
     import {
-        assetFilters,
+        state as assetState,
         updateFilters,
         resetFilters,
-        assetCounts,
-    } from "$lib/stores/assetStore";
-    import { jobs, loadJobs } from "$lib/stores/jobStore";
+    } from "$lib/stores/assetStore.svelte";
+    import { state as jobState, loadJobs } from "$lib/stores/jobStore.svelte";
     import Button from "../common/Button.svelte";
     import Card from "../common/Card.svelte";
     import {
@@ -21,15 +20,15 @@
     
     // LOCAL FILTER STATE TO AVOID TOO MANY UPDATES
     let filterState = $state({
-        type: $assetFilters.type || "",
-        jobId: $assetFilters.jobId || "",
-        search: $assetFilters.search || "",
+        type: assetState.assetFilters.type || "",
+        jobId: assetState.assetFilters.jobId || "",
+        search: assetState.assetFilters.search || "",
         dateRange: {
-            from: $assetFilters.dateRange?.from || null,
-            to: $assetFilters.dateRange?.to || null,
+            from: assetState.assetFilters.dateRange?.from || null,
+            to: assetState.assetFilters.dateRange?.to || null,
         },
-        sortBy: $assetFilters.sortBy || "date",
-        sortDirection: $assetFilters.sortDirection || "desc",
+        sortBy: assetState.assetFilters.sortBy || "date",
+        sortDirection: assetState.assetFilters.sortDirection || "desc",
     });
     
     // ASSET TYPES
@@ -50,7 +49,7 @@
     ];
     
     onMount(async () => {
-        if (!$jobs || $jobs.length === 0) {
+        if (!jobState.jobs || jobState.jobs.length === 0) {
             await loadJobs();
         }
         jobsLoaded = true;
@@ -81,7 +80,7 @@
     
     // AUTO-APPLY FILTERS WHEN SEARCH CHANGES
     $effect(() => {
-        if (filterState.search !== $assetFilters.search) {
+        if (filterState.search !== assetState.assetFilters.search) {
             // DEBOUNCE SEARCH FILTER APPLICATION
             const timeout = setTimeout(() => {
                 updateFilters({ search: filterState.search });
@@ -90,11 +89,12 @@
         }
     });
 </script>
+
 <Card>
     <div
         class="flex flex-col md:flex-row items-start md:items-center justify-between space-y-3 md:space-y-0"
     >
-        <!-- Search bar -->
+        <!-- SEARCH BAR -->
         <div class="w-full md:w-2/3 relative">
             <div
                 class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"
@@ -108,7 +108,8 @@
                 class="pl-10 pr-4 py-2 w-full rounded-md bg-base-700 border border-dark-600 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             />
         </div>
-        <!-- Filter toggle and apply button -->
+        
+        <!-- FILTER TOGGLE AND APPLY BUTTON -->
         <div class="flex w-full md:w-auto space-x-2">
             <Button
                 variant="outline"
@@ -139,11 +140,12 @@
             </Button>
         </div>
     </div>
+    
     {#if expanded}
         <div
             class="mt-4 pt-4 border-t border-dark-700 grid grid-cols-1 md:grid-cols-3 gap-4"
         >
-            <!-- Asset type filter -->
+            <!-- ASSET TYPE FILTER -->
             <div>
                 <label
                     for="asset-type"
@@ -155,20 +157,21 @@
                     <select
                         id="asset-type"
                         bind:value={filterState.type}
-                        class="w-full rounded-md bg-base-700 border border-dark-600 py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                        class="select select-bordered w-full"
                     >
                         {#each assetTypes as type}
                             <option value={type.id}
                                 >{type.label}
                                 {type.id
-                                    ? `(${$assetCounts[type.id] || 0})`
+                                    ? `(${assetState.assetCounts[type.id] || 0})`
                                     : ""}</option
                             >
                         {/each}
                     </select>
                 </div>
             </div>
-            <!-- Job filter -->
+            
+            <!-- JOB FILTER -->
             <div>
                 <label
                     for="job-filter"
@@ -180,11 +183,11 @@
                     <select
                         id="job-filter"
                         bind:value={filterState.jobId}
-                        class="w-full rounded-md bg-base-700 border border-dark-600 py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                        class="select select-bordered w-full"
                     >
                         <option value="">All Jobs</option>
                         {#if jobsLoaded}
-                            {#each $jobs as job}
+                            {#each jobState.jobs as job}
                                 <option value={job.id}
                                     >{job.name || job.baseUrl}</option
                                 >
@@ -193,7 +196,8 @@
                     </select>
                 </div>
             </div>
-            <!-- Date range -->
+            
+            <!-- DATE RANGE -->
             <div>
                 <legend class="block text-sm font-medium text-dark-300 mb-1">
                     Date Range
@@ -213,7 +217,8 @@
                     />
                 </div>
             </div>
-            <!-- Sort options -->
+            
+            <!-- SORT OPTIONS -->
             <div>
                 <label
                     for="sort-by"
@@ -225,7 +230,7 @@
                     <select
                         id="sort-by"
                         bind:value={filterState.sortBy}
-                        class="w-2/3 rounded-md bg-base-700 border border-dark-600 py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                        class="select select-bordered w-2/3"
                     >
                         {#each sortOptions as option}
                             <option value={option.id}>{option.label}</option>
@@ -234,14 +239,15 @@
                     <select
                         id="sort-direction"
                         bind:value={filterState.sortDirection}
-                        class="w-1/3 rounded-md bg-base-700 border border-dark-600 py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                        class="select select-bordered w-1/3"
                     >
                         <option value="desc">Descending</option>
                         <option value="asc">Ascending</option>
                     </select>
                 </div>
             </div>
-            <!-- Apply button -->
+            
+            <!-- APPLY BUTTON -->
             <div class="md:col-span-3 flex justify-end">
                 <Button variant="primary" onclick={applyFilters}>
                     Apply Filters

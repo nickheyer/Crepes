@@ -1,18 +1,12 @@
 <script>
     import { onMount } from "svelte";
     import { isValidRegex } from "$lib/utils/validation";
-    import { createEventDispatcher } from "svelte";
+    import { state as jobState, setStepValidity } from "$lib/stores/jobStore.svelte";
 
-    const dispatch = createEventDispatcher();
-    
-    // Props
-    let { formData = {} } = $props();
-    
-
-    // Local state
-    let filters = $state(formData.filters || []);
+    // INITIALIZE LOCAL STATE
+    let filters = $state(jobState.formData.data.filters || []);
     let rules = $state(
-        formData.rules || {
+        jobState.formData.data.rules || {
             maxDepth: 3,
             maxAssets: 0,
             maxPages: 0,
@@ -34,7 +28,7 @@
     let editingIndex = $state(-1);
     let isValid = $state(false);
 
-    // Filter types
+    // FILTER TYPES
     const filterTypes = [
         {
             id: "url",
@@ -58,47 +52,52 @@
         },
     ];
 
-    // Initialize
+    // SETUP ON COMPONENT MOUNT
     onMount(() => {
         resetEditingFilter();
         validate();
     });
 
-    // Add or update filter
+    // ADD OR UPDATE FILTER
     function addFilter() {
         if (!editingFilter.name || !editingFilter.pattern) return;
 
         if (editingIndex >= 0) {
             // Update existing filter
             filters[editingIndex] = { ...editingFilter };
-            editingIndex = -1;
         } else {
             // Add new filter
             filters = [...filters, { ...editingFilter }];
         }
 
+        // Update the store
+        jobState.formData.data.filters = [...filters];
+
         // Reset form
         resetEditingFilter();
-        updateFormData();
+        editingIndex = -1;
+        validate();
     }
 
-    // Edit a filter
+    // EDIT FILTER
     function editFilter(index) {
         editingFilter = { ...filters[index] };
         editingIndex = index;
     }
 
-    // Remove a filter
+    // REMOVE FILTER
     function removeFilter(index) {
         filters = filters.filter((_, i) => i !== index);
+        jobState.formData.data.filters = [...filters];
+        
         if (editingIndex === index) {
             resetEditingFilter();
             editingIndex = -1;
         }
-        updateFormData();
+        validate();
     }
 
-    // Reset editing filter form
+    // RESET EDITING FORM
     function resetEditingFilter() {
         editingFilter = {
             id: generateId(),
@@ -111,59 +110,70 @@
         editingIndex = -1;
     }
 
-    // Generate random ID
+    // GENERATE RANDOM ID
     function generateId() {
         return "filter_" + Math.random().toString(36).substring(2, 11);
     }
 
-    // Validate the step
+    // VALIDATE CONFIGURATION
     function validate() {
         // Check URL patterns if provided
-        let isValid = true;
+        let valid = true;
 
         if (rules.includeUrlPattern && !isValidRegex(rules.includeUrlPattern)) {
-            isValid = false;
+            valid = false;
         }
 
         if (rules.excludeUrlPattern && !isValidRegex(rules.excludeUrlPattern)) {
-            isValid = false;
+            valid = false;
         }
 
         // Validate filters
         filters.forEach((filter) => {
             if (!isValidRegex(filter.pattern)) {
-                isValid = false;
+                valid = false;
             }
         });
 
-        dispatch("validate", isValid);
-        return isValid;
+        isValid = valid;
+        setStepValidity(3, valid);
+        return valid;
     }
 
-    // Update form data and validate
+    // UPDATE FORM WITH PROCESSED DATA
     function updateFormData() {
-        const updatedData = {
-            ...formData,
-            filters: [...filters],
-            rules: { ...rules },
+        // Create a new object to avoid reactivity issues
+        const updatedRules = {
+            ...rules,
+            maxDepth: parseInt(rules.maxDepth) || 0,
+            maxAssets: parseInt(rules.maxAssets) || 0,
+            maxPages: parseInt(rules.maxPages) || 0,
+            maxConcurrent: parseInt(rules.maxConcurrent) || 5,
+            requestDelay: parseInt(rules.requestDelay) || 0,
         };
-
-        // Convert numeric string values to numbers
-        updatedData.rules.maxDepth = parseInt(rules.maxDepth) || 0;
-        updatedData.rules.maxAssets = parseInt(rules.maxAssets) || 0;
-        updatedData.rules.maxPages = parseInt(rules.maxPages) || 0;
-        updatedData.rules.maxConcurrent = parseInt(rules.maxConcurrent) || 5;
-        updatedData.rules.requestDelay = parseInt(rules.requestDelay) || 0;
-
-        const isValid = validate();
-        if (isValid) {
-            dispatch("update", updatedData);
+        
+        // Only update if values have changed
+        if (JSON.stringify(jobState.formData.data.rules) !== JSON.stringify(updatedRules)) {
+            jobState.formData.data.rules = updatedRules;
         }
     }
 
-    // Watch for changes
+    // FIX FOR INFINITE LOOP: ADD EXPLICIT DEPENDENCIES
     $effect(() => {
-        validate();
+        // Explicitly track all rule properties that we need to watch
+        const watchedRules = {
+            maxDepth: rules.maxDepth,
+            maxAssets: rules.maxAssets,
+            maxPages: rules.maxPages,
+            maxConcurrent: rules.maxConcurrent,
+            requestDelay: rules.requestDelay,
+            includeUrlPattern: rules.includeUrlPattern,
+            excludeUrlPattern: rules.excludeUrlPattern,
+            randomizeDelay: rules.randomizeDelay
+        };
+        
+        // Now updateFormData will only run when these values change
+        updateFormData();
     });
 </script>
 
@@ -309,7 +319,6 @@
                     bind:value={rules.includeUrlPattern}
                     placeholder="E.g., /products/.* (leave empty to include all)"
                     class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                    onchange={updateFormData}
                 />
                 <p class="mt-1 text-xs text-dark-400">
                     Only crawl URLs matching this pattern
@@ -329,7 +338,6 @@
                     bind:value={rules.excludeUrlPattern}
                     placeholder="E.g., .*\.pdf$ (leave empty to exclude none)"
                     class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                    onchange={updateFormData}
                 />
                 <p class="mt-1 text-xs text-dark-400">
                     Skip URLs matching this pattern
@@ -459,7 +467,7 @@
                     <select
                         id="filter-type"
                         bind:value={editingFilter.type}
-                        class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                        class="select select-bordered w-full"
                     >
                         {#each filterTypes as type}
                             <option value={type.id}>{type.label}</option>
@@ -493,7 +501,7 @@
                     <select
                         id="filter-action"
                         bind:value={editingFilter.action}
-                        class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                        class="select select-bordered w-full"
                     >
                         <option value="include">Include matching items</option>
                         <option value="exclude">Exclude matching items</option>

@@ -1,0 +1,8 @@
+{
+  "port": "8080",
+  "storagePath": "storage",
+  "thumbnailsPath": "thumbnails",
+  "dataPath": "data",
+  "maxConcurrent": 5,
+  "defaultTimeout": 300000
+}

@@ -4,11 +4,9 @@
     import FilterPanel from "$lib/components/assets/FilterPanel.svelte";
     import AssetViewer from "$lib/components/assets/AssetViewer.svelte";
     import {
-        loadAssets,
-        assetViewerOpen,
-        assetCounts,
-        selectedAsset,
-    } from "$lib/stores/assetStore";
+        state as assetState,
+        loadAssets
+    } from "$lib/stores/assetStore.svelte";
 
     // State
     let loading = $state(true);
@@ -51,6 +49,6 @@
 </section>
 
 <!-- Asset Viewer Modal -->
-{#if $assetViewerOpen && $selectedAsset}
+{#if assetState.assetViewerOpen && assetState.selectedAsset}
     <AssetViewer />
 {/if}

@@ -4,13 +4,12 @@
     import Button from "$lib/components/common/Button.svelte";
     import { formatFileSize, formatDate } from "$lib/utils/formatters";
     import {
-        assets,
-        selectedAsset,
-        closeAssetViewer,
+        state as assetState,
         removeAsset,
         regenerateAssetThumbnail,
-    } from "$lib/stores/assetStore";
-    import { addToast } from "$lib/stores/uiStore";
+        closeAssetViewer
+    } from "$lib/stores/assetStore.svelte";
+    import { addToast } from "$lib/stores/uiStore.svelte";
     import {
         Trash,
         ChevronLeft,
@@ -25,29 +24,29 @@
     
     // GET CURRENT INDEX
     let currentIndex = $derived(() => {
-        if (!$selectedAsset) return -1;
+        if (!assetState.selectedAsset) return -1;
         // ENSURE ASSETS IS ALWAYS AN ARRAY
-        const assetArray = Array.isArray($assets) ? $assets : [];
-        return assetArray.findIndex((a) => a.id === $selectedAsset.id);
+        const assetArray = Array.isArray(assetState.assets) ? assetState.assets : [];
+        return assetArray.findIndex((a) => a.id === assetState.selectedAsset.id);
     });
     
     // GET ASSETS LENGTH SAFELY
     let assetsLength = $derived(() => {
         // ENSURE ASSETS IS ALWAYS AN ARRAY
-        const assetArray = Array.isArray($assets) ? $assets : [];
+        const assetArray = Array.isArray(assetState.assets) ? assetState.assets : [];
         return assetArray.length;
     });
     
     // NAVIGATE TO NEXT/PREVIOUS ASSET
     function navigateToPrev() {
-        if (currentIndex > 0 && Array.isArray($assets)) {
-            $selectedAsset = $assets[currentIndex - 1];
+        if (currentIndex > 0 && Array.isArray(assetState.assets)) {
+            assetState.selectedAsset = assetState.assets[currentIndex - 1];
         }
     }
     
     function navigateToNext() {
-        if (currentIndex < assetsLength - 1 && Array.isArray($assets)) {
-            $selectedAsset = $assets[currentIndex + 1];
+        if (currentIndex < assetsLength - 1 && Array.isArray(assetState.assets)) {
+            assetState.selectedAsset = assetState.assets[currentIndex + 1];
         }
     }
     
@@ -69,14 +68,14 @@
         }
         try {
             loading = true;
-            await removeAsset($selectedAsset.id);
+            await removeAsset(assetState.selectedAsset.id);
             addToast("Asset deleted successfully", "success");
             // Navigate to next asset or close viewer if no more assets
-            if (Array.isArray($assets)) {
-                if (currentIndex < $assets.length - 1) {
-                    $selectedAsset = $assets[currentIndex + 1];
+            if (Array.isArray(assetState.assets)) {
+                if (currentIndex < assetState.assets.length - 1) {
+                    assetState.selectedAsset = assetState.assets[currentIndex + 1];
                 } else if (currentIndex > 0) {
-                    $selectedAsset = $assets[currentIndex - 1];
+                    assetState.selectedAsset = assetState.assets[currentIndex - 1];
                 } else {
                     closeAssetViewer();
                 }
@@ -93,7 +92,7 @@
     async function handleRegenerate() {
         try {
             loading = true;
-            await regenerateAssetThumbnail($selectedAsset.id);
+            await regenerateAssetThumbnail(assetState.selectedAsset.id);
             addToast("Thumbnail regenerated successfully", "success");
         } catch (error) {
             addToast(
@@ -106,18 +105,18 @@
     }
     
     function downloadAsset() {
-        if (!$selectedAsset.localPath) {
+        if (!assetState.selectedAsset.localPath) {
             addToast("This asset does not have a local file", "error");
             return;
         }
         const link = document.createElement("a");
-        link.href = `/assets/${$selectedAsset.localPath}`;
-        link.download = $selectedAsset.title || "download";
+        link.href = `/assets/${assetState.selectedAsset.localPath}`;
+        link.download = assetState.selectedAsset.title || "download";
         link.click();
     }
 </script>
 <svelte:window onkeydown={handleKeydown} />
-{#if $selectedAsset}
+{#if assetState.selectedAsset}
     <div
         class="fixed inset-0 z-50 bg-black bg-opacity-90 flex flex-col"
         transition:fade={{ duration: 200 }}
@@ -134,7 +133,7 @@
                 </button>
                 <div class="text-sm">
                     <div class="font-medium">
-                        {$selectedAsset.title || "Untitled"}
+                        {assetState.selectedAsset.title || "Untitled"}
                     </div>
                     <div class="text-xs text-dark-300">
                         {currentIndex + 1} of {assetsLength}
@@ -180,15 +179,15 @@
             {/if}
             <!-- Content area -->
             <div class="flex-1 flex items-center justify-center p-4">
-                {#if $selectedAsset.type === "image" && $selectedAsset.localPath}
+                {#if assetState.selectedAsset.type === "image" && assetState.selectedAsset.localPath}
                     <img
-                        src={`/assets/${$selectedAsset.localPath}`}
-                        alt={$selectedAsset.title || "Image"}
+                        src={`/assets/${assetState.selectedAsset.localPath}`}
+                        alt={assetState.selectedAsset.title || "Image"}
                         class="max-h-full max-w-full object-contain"
                     />
-                {:else if $selectedAsset.type === "video" && $selectedAsset.localPath}
+                {:else if assetState.selectedAsset.type === "video" && assetState.selectedAsset.localPath}
                     <video
-                        src={`/assets/${$selectedAsset.localPath}`}
+                        src={`/assets/${assetState.selectedAsset.localPath}`}
                         controls
                         autoplay
                         class="max-h-full max-w-full"
@@ -196,7 +195,7 @@
                         <track kind="captions" />
                         Your browser does not support the video tag.
                     </video>
-                {:else if $selectedAsset.type === "audio" && $selectedAsset.localPath}
+                {:else if assetState.selectedAsset.type === "audio" && assetState.selectedAsset.localPath}
                     <div class="bg-base-800 p-6 rounded-lg w-full max-w-2xl">
                         <div class="mb-4 flex justify-center">
                             <div
@@ -206,10 +205,10 @@
                             </div>
                         </div>
                         <h3 class="text-xl font-medium text-center mb-4">
-                            {$selectedAsset.title || "Audio File"}
+                            {assetState.selectedAsset.title || "Audio File"}
                         </h3>
                         <audio
-                            src={`/assets/${$selectedAsset.localPath}`}
+                            src={`/assets/${assetState.selectedAsset.localPath}`}
                             controls
                             class="w-full"
                             autoplay
@@ -221,17 +220,17 @@
                     <div class="bg-base-800 p-6 rounded-lg">
                         <div class="flex flex-col items-center">
                             <div class="text-6xl mb-4">
-                                {#if $selectedAsset.type === "document"}
+                                {#if assetState.selectedAsset.type === "document"}
                                     📄
                                 {:else}
                                     ❓
                                 {/if}
                             </div>
                             <h3 class="text-xl font-medium mb-2">
-                                {$selectedAsset.title || "File"}
+                                {assetState.selectedAsset.title || "File"}
                             </h3>
                             <p class="text-dark-400 mb-4">
-                                {formatFileSize($selectedAsset.size)}
+                                {formatFileSize(assetState.selectedAsset.size)}
                             </p>
                             <Button variant="primary" onclick={downloadAsset}>
                                 <CloudDownload class="h-5 w-5 mr-2" />
@@ -261,65 +260,64 @@
                         <h4 class="text-sm font-medium text-dark-300 mb-1">
                             Title
                         </h4>
-                        <p>{$selectedAsset.title || "Untitled"}</p>
+                        <p>{assetState.selectedAsset.title || "Untitled"}</p>
                     </div>
-                    {#if $selectedAsset.description}
+                    {#if assetState.selectedAsset.description}
                         <div>
                             <h4 class="text-sm font-medium text-dark-300 mb-1">
                                 Description
                             </h4>
-                            <p class="text-sm">{$selectedAsset.description}</p>
+                            <p class="text-sm">{assetState.selectedAsset.description}</p>
                         </div>
                     {/if}
                     <div>
                         <h4 class="text-sm font-medium text-dark-300 mb-1">
                             Type
                         </h4>
-                        <p>{$selectedAsset.type}</p>
+                        <p>{assetState.selectedAsset.type}</p>
                     </div>
                     <div>
                         <h4 class="text-sm font-medium text-dark-300 mb-1">
                             Size
                         </h4>
-                        <p>{formatFileSize($selectedAsset.size)}</p>
+                        <p>{formatFileSize(assetState.selectedAsset.size)}</p>
                     </div>
-                    {#if $selectedAsset.date}
+                    {#if assetState.selectedAsset.date}
                         <div>
                             <h4 class="text-sm font-medium text-dark-300 mb-1">
                                 Date
                             </h4>
-                            <p>{formatDate($selectedAsset.date)}</p>
+                            <p>{formatDate(assetState.selectedAsset.date)}</p>
                         </div>
                     {/if}
-                    {#if $selectedAsset.url}
+                    {#if assetState.selectedAsset.url}
                         <div>
                             <h4 class="text-sm font-medium text-dark-300 mb-1">
                                 Source URL
                             </h4>
                             <p class="text-sm break-all">
                                 <a
-                                    href={$selectedAsset.url}
+                                    href={assetState.selectedAsset.url}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     class="text-primary-400 hover:text-primary-300"
                                 >
-                                    {$selectedAsset.url}
+                                    {assetState.selectedAsset.url}
                                 </a>
                             </p>
                         </div>
                     {/if}
-                    {#if $selectedAsset.metadata && Object.keys($selectedAsset.metadata).length > 0}
+                    {#if assetState.selectedAsset.metadata && Object.keys(assetState.selectedAsset.metadata).length > 0}
                         <div>
                             <h4 class="text-sm font-medium text-dark-300 mb-2">
                                 Metadata
                             </h4>
                             <div class="bg-base-900 rounded-md p-3 text-sm">
-                                {#each Object.entries($selectedAsset.metadata) as [key, value]}
+                                {#each Object.entries(assetState.selectedAsset.metadata) as [key, value]}
                                     <div
                                         class="mb-1 pb-1 border-b border-dark-800 last:border-b-0 last:mb-0 last:pb-0"
                                     >
-                                        <span class="text-dark-400">{key}:</span
-                                        >
+                                        <span class="text-dark-400">{key}:</span>
                                         {value}
                                     </div>
                                 {/each}

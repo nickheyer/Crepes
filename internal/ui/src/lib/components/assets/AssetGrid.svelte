@@ -1,10 +1,10 @@
 <script>
     import { fade } from "svelte/transition";
     import {
+        state as assetState,
         filteredAssets,
-        assetViewerOpen,
         viewAsset,
-    } from "$lib/stores/assetStore";
+    } from "$lib/stores/assetStore.svelte";
     import AssetCard from "./AssetCard.svelte";
     import { formatFileSize, formatDate } from "$lib/utils/formatters";
     
@@ -29,12 +29,13 @@
         viewAsset(asset);
     }
 </script>
+
 <div>
     <!-- View toggle -->
     <div class="flex justify-between items-center mb-4">
         <div>
             <span class="text-dark-300 text-sm">
-                {$filteredAssets.length} assets found
+                {filteredAssets.length} assets found
             </span>
         </div>
         <div class="flex">
@@ -74,7 +75,8 @@
             </button>
         </div>
     </div>
-    {#if $filteredAssets.length === 0}
+
+    {#if !filteredAssets || filteredAssets.length === 0}
         <div class="bg-base-800 rounded-lg p-8 text-center">
             <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -99,7 +101,7 @@
         <div
             class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6"
         >
-            {#each $filteredAssets as asset (asset.id)}
+            {#each filteredAssets as asset (asset.id)}
                 <div in:fade={{ duration: 150 }}>
                     <AssetCard {asset} on:view={() => handleViewAsset(asset)} />
                 </div>
@@ -251,7 +253,7 @@
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-dark-700">
-                    {#each $filteredAssets as asset (asset.id)}
+                    {#each filteredAssets as asset (asset.id)}
                         <tr
                             class="hover:bg-base-750"
                             in:fade={{ duration: 150 }}
@@ -263,7 +265,7 @@
                                     >
                                         {#if asset.thumbnailPath}
                                             <img
-                                                src={`/thumbnails/${asset.thumbnailPath}`}
+                                                src={`/api/thumbnails/${asset.thumbnailPath}`}
                                                 alt=""
                                                 class="w-full h-full object-cover"
                                             />

@@ -5,13 +5,11 @@ const API_BASE_URL = '/api';
 async function apiFetch(endpoint, options = {}) {
   try {
     const url = `${API_BASE_URL}${endpoint}`;
-    
     const defaultOptions = {
       headers: {
         'Content-Type': 'application/json',
       },
     };
-    
     const response = await fetch(url, { ...defaultOptions, ...options });
     
     // HANDLE NON-SUCCESS RESPONSES
@@ -31,16 +29,14 @@ async function apiFetch(endpoint, options = {}) {
     if (contentType && contentType.includes('application/json')) {
       return await response.json();
     }
-    
     return await response.text();
   } catch (error) {
-    console.error('API request failed:', error);
+    console.error('API REQUEST FAILED:', error);
     throw error;
   }
 }
 
 // JOB ENDPOINTS
-
 // FETCH ALL JOBS
 export async function fetchJobs() {
   return apiFetch('/jobs');
@@ -93,23 +89,30 @@ export async function fetchJobAssets(jobId) {
   return apiFetch(`/jobs/${jobId}/assets`);
 }
 
-// ASSET ENDPOINTS
+// GET JOB STATISTICS
+export async function fetchJobStatistics(jobId) {
+  return apiFetch(`/jobs/${jobId}/statistics`);
+}
 
+// ASSET ENDPOINTS
 // FETCH ALL ASSETS (WITH OPTIONAL FILTERS)
 export async function fetchAssets(filters = {}) {
   // CONVERT FILTERS TO QUERY STRING
   const queryParams = new URLSearchParams();
-  
   for (const [key, value] of Object.entries(filters)) {
     if (value) {
       queryParams.append(key, value);
     }
   }
-  
   const queryString = queryParams.toString();
   const endpoint = queryString ? `/assets?${queryString}` : '/assets';
+  const result = await apiFetch(endpoint);
   
-  return apiFetch(endpoint);
+  // HANDLE BACKEND RESPONSE FORMAT (ASSETS ARE NOW NESTED)
+  if (result && result.assets) {
+    return result;
+  }
+  return { assets: result, counts: {} };
 }
 
 // FETCH ASSET DETAILS
@@ -132,12 +135,14 @@ export async function regenerateThumbnail(assetId) {
 }
 
 // TEMPLATE ENDPOINTS
-
-// THESE ENDPOINTS WOULD BE IMPLEMENTED ON THE BACKEND
-
 // FETCH ALL TEMPLATES
 export async function fetchTemplates() {
   return apiFetch('/templates');
+}
+
+// FETCH TEMPLATE EXAMPLES
+export async function fetchTemplateExamples() {
+  return apiFetch('/templates/examples');
 }
 
 // CREATE A TEMPLATE
@@ -161,4 +166,37 @@ export async function deleteTemplate(templateId) {
   return apiFetch(`/templates/${templateId}`, {
     method: 'DELETE',
   });
+}
+
+// CREATE JOB FROM TEMPLATE
+export async function createJobFromTemplate(templateId) {
+  return apiFetch(`/templates/${templateId}/create-job`, {
+    method: 'POST',
+  });
+}
+
+// SETTINGS ENDPOINTS
+// GET ALL SETTINGS
+export async function fetchSettings() {
+  return apiFetch('/settings');
+}
+
+// UPDATE SETTINGS
+export async function updateSettings(settingsData) {
+  return apiFetch('/settings', {
+    method: 'PUT',
+    body: JSON.stringify(settingsData),
+  });
+}
+
+// CLEAR CACHE
+export async function clearCache() {
+  return apiFetch('/cache/clear', {
+    method: 'POST',
+  });
+}
+
+// STORAGE INFO
+export async function fetchStorageInfo() {
+  return apiFetch('/storage/info');
 }

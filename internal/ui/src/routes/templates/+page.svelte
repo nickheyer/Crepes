@@ -3,104 +3,110 @@
     import Card from "$lib/components/common/Card.svelte";
     import Button from "$lib/components/common/Button.svelte";
     import { 
-        templates, 
-        templatesLoading, 
+        state as templateState, 
         loadTemplates, 
-        createJobFromTemplate,
-        removeTemplate
-    } from "$lib/stores/templateStore";
-    import { addToast } from "$lib/stores/uiStore";
+        createJobFromTemplateId,
+        removeTemplate,
+        loadTemplateExamples,
+        useTemplateExample
+    } from "$lib/stores/templateStore.svelte";
+    import { addToast } from "$lib/stores/uiStore.svelte";
     import { formatDate } from "$lib/utils/formatters";
-    import { jobWizardState, updateJobWizardStep, setJobWizardStep } from "$lib/stores/jobStore";
+    import {
+        state as jobState,
+        updateJobWizardStep,
+        setJobWizardStep,
+        resetJobWizard
+    } from "$lib/stores/jobStore.svelte";
+
     import JobWizard from "$lib/components/jobs/JobWizard.svelte";
-
-    import { Plus, Trash, FileText, Play } from 'lucide-svelte';
-
-    // Local state
+    import { Plus, Trash, FileText, Play, Copy } from 'lucide-svelte';
+    
+    // LOCAL STATE
     let loading = $state(true);
     let newTemplateModal = $state(false);
     let confirmingDelete = $state(null);
     let editingTemplate = $state(null);
-
+    let showExamples = $state(false);
+    let examples = $state({});
+    
     onMount(async () => {
         try {
             await loadTemplates();
+            examples = await loadTemplateExamples();
         } catch (error) {
-            console.error("Error loading templates:", error);
+            console.error("ERROR LOADING TEMPLATES:", error);
         } finally {
             loading = false;
         }
     });
-
+    
     function openNewTemplateModal() {
-        // Reset wizard state with minimal data for a template
-        jobWizardState.set({
-            step: 1,
-            data: {
-                name: '',
-                baseUrl: '',
-                description: '',
-                selectors: [],
-                filters: [],
-                schedule: null,
-                processing: {
-                    thumbnails: true,
-                    metadata: true
-                }
-            },
-            isTemplate: true
-        });
+        // RESET WIZARD STATE WITH MINIMAL DATA FOR A TEMPLATE
+        resetJobWizard();
         newTemplateModal = true;
+        editingTemplate = null;
     }
-
+    
     function editTemplate(template) {
-        // Populate wizard with template data
+        // POPULATE WIZARD WITH TEMPLATE DATA
         updateJobWizardStep(1, template);
         setJobWizardStep(1);
         editingTemplate = template.id;
         newTemplateModal = true;
     }
-
+    
     function confirmDelete(id) {
         confirmingDelete = id;
     }
-
+    
     function cancelDelete() {
         confirmingDelete = null;
     }
-
+    
     async function handleDeleteTemplate(id) {
         try {
             await removeTemplate(id);
             confirmingDelete = null;
-            addToast('Template deleted successfully', 'success');
+            addToast('TEMPLATE DELETED SUCCESSFULLY', 'success');
         } catch (error) {
-            addToast(`Failed to delete template: ${error.message}`, 'error');
+            addToast(`FAILED TO DELETE TEMPLATE: ${error.message}`, 'error');
         }
     }
-
-    async function handleCreateJob(template) {
+    
+    async function handleCreateJob(templateId) {
         try {
-            await createJobFromTemplate(template);
-            addToast('Job created successfully from template', 'success');
+            await createJobFromTemplateId(templateId);
+            addToast('JOB CREATED SUCCESSFULLY FROM TEMPLATE', 'success');
             window.location.href = '/jobs';
         } catch (error) {
-            addToast(`Failed to create job: ${error.message}`, 'error');
+            addToast(`FAILED TO CREATE JOB: ${error.message}`, 'error');
         }
     }
-
+    
     function handleTemplateWizardSuccess(event) {
-        const templateData = event.detail.template;
-        
         if (editingTemplate) {
-            addToast('Template updated successfully', 'success');
+            addToast('TEMPLATE UPDATED SUCCESSFULLY', 'success');
             editingTemplate = null;
         } else {
-            addToast('Template created successfully', 'success');
+            addToast('TEMPLATE CREATED SUCCESSFULLY', 'success');
         }
-        
         newTemplateModal = false;
-        loadTemplates(); // Reload templates
+        loadTemplates(); // RELOAD TEMPLATES
+    }
+    
+    async function useExample(exampleKey) {
+        try {
+            const templateData = await useTemplateExample(exampleKey);
+            if (templateData) {
+                // POPULATE WIZARD WITH EXAMPLE DATA
+                updateJobWizardStep(1, templateData);
+                newTemplateModal = true;
+                editingTemplate = null;
+            }
+        } catch (error) {
+            addToast(`FAILED TO LOAD TEMPLATE EXAMPLE: ${error.message}`, 'error');
+        }
     }
 </script>
 
@@ -114,17 +120,52 @@
             <h1 class="text-2xl font-bold mb-2">Job Templates</h1>
             <p class="text-dark-300">Create and manage reusable job templates</p>
         </div>
-        <Button variant="primary" onclick={openNewTemplateModal}>
-            <Plus class="h-5 w-5 mr-2" />
-            Create Template
-        </Button>
+        <div class="flex space-x-2">
+            <Button 
+                variant="outline" 
+                onclick={() => showExamples = !showExamples}
+            >
+                <Copy class="h-5 w-5 mr-2" />
+                Example Templates
+            </Button>
+            <Button variant="primary" onclick={openNewTemplateModal}>
+                <Plus class="h-5 w-5 mr-2" />
+                Create Template
+            </Button>
+        </div>
     </div>
-
+    
+    {#if showExamples}
+        <Card title="Example Templates" class="mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {#if examples && Object.keys(examples).length > 0}
+                    {#each Object.entries(examples) as [key, template]}
+                        <div class="bg-base-750 p-4 rounded-lg">
+                            <h3 class="font-medium text-lg">{template.name}</h3>
+                            <p class="text-sm text-dark-400 mt-1 mb-3">{template.description}</p>
+                            <Button 
+                                variant="primary" 
+                                size="sm" 
+                                onclick={() => useExample(key)}
+                            >
+                                Use This Template
+                            </Button>
+                        </div>
+                    {/each}
+                {:else}
+                    <div class="md:col-span-2 lg:col-span-3 py-8 text-center">
+                        <p>No example templates available</p>
+                    </div>
+                {/if}
+            </div>
+        </Card>
+    {/if}
+    
     {#if loading}
         <div class="py-20 flex justify-center">
             <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
         </div>
-    {:else if $templates.length === 0}
+    {:else if templateState.templates.length === 0}
         <Card class="text-center py-12">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mx-auto text-dark-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -135,7 +176,7 @@
         </Card>
     {:else}
         <div class="space-y-6">
-            {#each $templates as template (template.id)}
+            {#each templateState.templates as template (template.id)}
                 <Card class="hover:shadow-lg transition-shadow">
                     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                         <div class="flex-1">
@@ -164,7 +205,7 @@
                             <Button 
                                 variant="primary" 
                                 size="sm" 
-                                onclick={() => handleCreateJob(template)}
+                                onclick={() => handleCreateJob(template.id)}
                             >
                                 <Play class="h-5 w-5 mr-1" />
                                 Create Job
@@ -177,6 +218,7 @@
                                 <FileText class="h-5 w-5 mr-1" />
                                 Edit
                             </Button>
+                            
                             {#if confirmingDelete === template.id}
                                 <div class="flex items-center space-x-2">
                                     <span class="text-sm text-danger-400">Confirm?</span>
@@ -213,7 +255,7 @@
     {/if}
 </section>
 
-<!-- Template Creation/Editing Modal -->
+<!-- TEMPLATE CREATION/EDITING MODAL -->
 {#if newTemplateModal}
     <div class="fixed inset-0 z-50 overflow-y-auto">
         <div class="flex items-center justify-center min-h-screen">
@@ -231,11 +273,10 @@
                         {editingTemplate ? 'Edit Template' : 'Create Template'}
                     </h2>
                 </div>
-                
-                <!-- Reuse JobWizard but adjust for templates -->
+                <!-- REUSE JOBWIZARD BUT ADJUST FOR TEMPLATES -->
                 <JobWizard 
                     isTemplate={true}
-                    initialData={editingTemplate ? $templates.find(t => t.id === editingTemplate) : null}
+                    initialData={editingTemplate ? templateState.templates.find(t => t.id === editingTemplate) : null}
                     on:success={handleTemplateWizardSuccess}
                     on:cancel={() => newTemplateModal = false}
                 />
