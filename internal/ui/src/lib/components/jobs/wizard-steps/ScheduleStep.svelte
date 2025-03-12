@@ -4,7 +4,6 @@
     import { getCronDescription } from "$lib/utils/formatters";
     import { state as jobState, setStepValidity } from "$lib/stores/jobStore.svelte";
 
-    // LOCAL STATE
     let enableSchedule = $state(jobState.formData.data.schedule ? true : false);
     let scheduleType = $state("simple"); // 'simple' or 'advanced'
     let cronExpression = $state(jobState.formData.data.schedule || "");
@@ -17,7 +16,6 @@
     let simpleConfigChanged = $state(false);
     let lastUpdateTimestamp = $state(Date.now()); // TRACK LAST UPDATE
 
-    // FREQUENCY OPTIONS
     const frequencies = [
         { id: "hourly", label: "Hourly" },
         { id: "daily", label: "Daily" },
@@ -25,7 +23,6 @@
         { id: "monthly", label: "Monthly" },
     ];
 
-    // WEEKDAY OPTIONS
     const weekdays = [
         { id: "1", label: "Monday" },
         { id: "2", label: "Tuesday" },
@@ -36,13 +33,11 @@
         { id: "0", label: "Sunday" },
     ];
 
-    // DAY OF MONTH OPTIONS
     const daysOfMonth = Array.from({ length: 31 }, (_, i) => ({
         id: String(i + 1),
         label: String(i + 1),
     }));
 
-    // INITIALIZE
     onMount(() => {
         // SET DEFAULT VALUES BASED ON EXISTING SCHEDULE
         if (jobState.formData.data.schedule) {
@@ -57,7 +52,6 @@
 
                 // DETERMINE SCHEDULE TYPE AND SET VALUES
                 if (dow === "*" && dom === "*") {
-                    // Daily or hourly
                     if (minute === "0" && hour !== "*") {
                         frequency = "daily";
                         time = hour.padStart(2, "0") + ":00";
@@ -65,34 +59,29 @@
                         frequency = "hourly";
                     }
                 } else if (dom === "*" && dow !== "*") {
-                    // Weekly
                     frequency = "weekly";
                     weekday = dow;
                     if (minute === "0" && hour !== "*") {
                         time = hour.padStart(2, "0") + ":00";
                     }
                 } else if (dom !== "*" && dow === "*") {
-                    // Monthly
                     frequency = "monthly";
                     dayOfMonth = dom;
                     if (minute === "0" && hour !== "*") {
                         time = hour.padStart(2, "0") + ":00";
                     }
                 } else {
-                    // Complex schedule, use advanced mode
                     scheduleType = "advanced";
                 }
             } else {
-                // Invalid cron format, use advanced mode
                 scheduleType = "advanced";
             }
         }
 
-        // INITIAL UPDATE
         updateCronExpression();
+        updateFormData();
     });
 
-    // UPDATE CRON EXPRESSION BASED ON SIMPLE OPTIONS
     function updateCronExpression() {
         if (scheduleType === "simple") {
             // Parse time
@@ -132,10 +121,8 @@
         }
 
         validate();
-        updateFormData();
     }
 
-    // VALIDATE THE SCHEDULE SETTINGS
     function validate() {
         if (!enableSchedule) {
             isValid = true;
@@ -167,7 +154,6 @@
         return true;
     }
 
-    // UPDATE FORM DATA WITH VALIDATION
     function updateFormData() {
         const schedule = enableSchedule ? cronExpression : "";
 
@@ -181,48 +167,9 @@
         validate();
     }
 
-    // HANDLE SIMPLE CONFIG CHANGES
     function handleSimpleConfigChange() {
         simpleConfigChanged = true;
     }
-
-    // CONSOLIDATED EFFECT FOR SCHEDULE TYPE CHANGES
-    $effect(() => {
-        const currentScheduleType = scheduleType;
-        
-        if (currentScheduleType === "advanced") {
-            validate();
-        }
-    });
-
-    // HANDLE SIMPLE MODE CHANGES - WATCH DEPENDENCIES EXPLICITLY
-    $effect(() => {
-        // EXPLICITLY TRACK ALL SIMPLE MODE DEPENDENCIES
-        const tracking = {
-            scheduleType,
-            simpleConfigChanged,
-            frequency,
-            time,
-            weekday,
-            dayOfMonth
-        };
-        
-        if (scheduleType === "simple" && simpleConfigChanged) {
-            updateCronExpression();
-            simpleConfigChanged = false;
-        }
-    });
-
-    // CONSOLIDATED EFFECT FOR ENABLE SCHEDULE AND CRON EXPRESSION
-    $effect(() => {
-        // TRACK THESE VALUES EXPLICITLY
-        const currentEnableSchedule = enableSchedule;
-        const currentCronExpression = cronExpression;
-        const currentScheduleType = scheduleType;
-        
-        // PREVENT MULTIPLE UPDATES
-        updateFormData();
-    });
 </script>
 
 <div>

@@ -77,31 +77,24 @@
     confirmingDelete = null;
   }
   
-  // Close the job creation modal and reload jobs
   function handleJobCreationSuccess() {
     jobState.createJobModal = false;
     loadJobs();
   }
   
-  // Close the job creation modal without reloading
   function handleJobCreationCancel() {
     jobState.createJobModal = false;
   }
   
-  // Filter jobs based on search and status
-  let filteredJobs = $derived(() => {
-    return jobState.jobs.filter(job => {
-      // Filter by search text
-      const searchMatch = !jobFilter || 
-        (job.name && job.name.toLowerCase().includes(jobFilter.toLowerCase())) || 
-        job.baseUrl.toLowerCase().includes(jobFilter.toLowerCase());
+  let filteredJobs = $derived(jobState.jobs.filter((job) => {
+      // SEARCH
+      const searchMatch = (!jobFilter || jobFilter.length === 0) || (job.name && job.name.toLowerCase().includes(jobFilter.toLowerCase())) || job.baseUrl.toLowerCase().includes(jobFilter.toLowerCase());
       
-      // Filter by status
-      const statusMatch = !statusFilter || job.status === statusFilter;
+      // STATUS
+      const statusMatch = (!statusFilter || statusFilter.length === 0) || job.status === statusFilter;
       
       return searchMatch && statusMatch;
-    });
-  });
+  }));
 </script>
 
 <svelte:head>

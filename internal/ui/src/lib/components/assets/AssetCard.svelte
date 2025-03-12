@@ -7,10 +7,10 @@
     } from "$lib/stores/assetStore.svelte";
     import { addToast } from "$lib/stores/uiStore.svelte";
     
-    // PROPS
+    // PROPS USING SVELTE 5 $PROPS RUNE
     let { asset = {} } = $props();
     
-    // LOCAL STATE
+    // LOCAL STATE USING $STATE RUNE
     let isMenuOpen = $state(false);
     let loading = $state(false);
     
@@ -30,16 +30,16 @@
     }
     
     async function handleDelete() {
-        if (!confirm("ARE YOU SURE YOU WANT TO DELETE THIS ASSET?")) {
+        if (!confirm("Are you sure you want to delete this asset?")) {
             return;
         }
         
         try {
             loading = true;
             await removeAsset(asset.id);
-            addToast("ASSET DELETED SUCCESSFULLY", "success");
+            addToast("Asset deleted", "success");
         } catch (error) {
-            addToast(`FAILED TO DELETE ASSET: ${error.message}`, "error");
+            addToast(`Failed to delete asset: ${error.message}`, "error");
         } finally {
             loading = false;
             closeMenu();
@@ -50,10 +50,10 @@
         try {
             loading = true;
             await regenerateAssetThumbnail(asset.id);
-            addToast("THUMBNAIL REGENERATED SUCCESSFULLY", "success");
+            addToast("Thumbnail regenerated", "success");
         } catch (error) {
             addToast(
-                `FAILED TO REGENERATE THUMBNAIL: ${error.message}`,
+                `Failed to regenerate thumbnail: ${error.message}`,
                 "error",
             );
         } finally {
@@ -64,7 +64,7 @@
     
     function downloadAsset() {
         if (!asset.localPath) {
-            addToast("THIS ASSET DOES NOT HAVE A LOCAL FILE", "error");
+            addToast("This asset has no local file", "error");
             return;
         }
         
@@ -115,7 +115,7 @@
             <span
                 class="bg-primary-600 text-white rounded-full px-3 py-1 text-sm font-medium"
             >
-                View
+                VIEW
             </span>
         </div>
         
@@ -190,7 +190,7 @@
                             onclick={handleDelete}
                             disabled={loading}
                         >
-                            Delete
+                            DElete
                         </button>
                     </div>
                 {/if}

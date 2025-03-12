@@ -9,7 +9,7 @@
     import { formatFileSize, formatDate } from "$lib/utils/formatters";
     
     // PROPS
-    let { view = "grid" } = $props(); // 'grid' OR 'list'
+    let { view = "grid" } = $props();
     
     // SORTING AND FILTERING
     let sortBy = $state("date");
@@ -35,12 +35,16 @@
     <div class="flex justify-between items-center mb-4">
         <div>
             <span class="text-dark-300 text-sm">
-                {filteredAssets.length} assets found
+                {filteredAssets.length} Assets Found
             </span>
         </div>
         <div class="flex">
             <button
-                class={`px-3 py-1.5 text-sm rounded-l-lg focus:outline-none ${view === "grid" ? "bg-primary-600 text-white" : "bg-base-700 text-dark-300 hover:bg-base-600"}`}
+                class={`px-3 py-1.5 text-sm rounded-l-lg focus:outline-none ${
+                    view === "grid" 
+                        ? "bg-primary-600 text-white" 
+                        : "bg-base-700 text-dark-300 hover:bg-base-600"
+                }`}
                 onclick={() => (view = "grid")}
                 aria-label="Grid view"
             >
@@ -56,7 +60,11 @@
                 </svg>
             </button>
             <button
-                class={`px-3 py-1.5 text-sm rounded-r-lg focus:outline-none ${view === "list" ? "bg-primary-600 text-white" : "bg-base-700 text-dark-300 hover:bg-base-600"}`}
+                class={`px-3 py-1.5 text-sm rounded-r-lg focus:outline-none ${
+                    view === "list" 
+                        ? "bg-primary-600 text-white" 
+                        : "bg-base-700 text-dark-300 hover:bg-base-600"
+                }`}
                 onclick={() => (view = "list")}
                 aria-label="List view"
             >
@@ -75,7 +83,7 @@
             </button>
         </div>
     </div>
-
+    
     {#if !filteredAssets || filteredAssets.length === 0}
         <div class="bg-base-800 rounded-lg p-8 text-center">
             <svg

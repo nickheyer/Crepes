@@ -237,7 +237,7 @@ func RegisterJobHandlers(router *mux.Router, db *gorm.DB, engine *scraper.Engine
 		}()
 		// UPDATE JOB STATUS IMMEDIATELY FOR UI
 		db.Model(&models.Job{}).Where("id = ?", id).Update("status", "running")
-		utils.RespondWithJSON(w, http.StatusOK, map[string]interface{}{
+		utils.RespondWithJSON(w, http.StatusOK, map[string]any{
 			"success": true,
 			"message": "Job started successfully",
 		})
@@ -308,11 +308,21 @@ func RegisterJobHandlers(router *mux.Router, db *gorm.DB, engine *scraper.Engine
 		for _, asset := range assets {
 			assetTypes[asset.Type]++
 		}
+		jobProgress, err := engine.GetJobProgress(id)
+		if err != nil {
+			jobProgress = 0
+		}
+
+		jobDuration, err := engine.GetJobDuration(id)
+		if err != nil {
+			jobDuration = 0
+		}
+
 		stats := map[string]interface{}{
 			"totalAssets": totalAssets,
 			"assetTypes":  assetTypes,
-			"progress":    engine.GetJobProgress(id),
-			"duration":    engine.GetJobDuration(id),
+			"progress":    jobProgress,
+			"duration":    jobDuration,
 		}
 		utils.RespondWithJSON(w, http.StatusOK, map[string]interface{}{
 			"success": true,

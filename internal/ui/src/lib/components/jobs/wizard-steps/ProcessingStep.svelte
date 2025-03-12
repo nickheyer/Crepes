@@ -2,28 +2,10 @@
     import { onMount } from "svelte";
     import { state as jobState, setStepValidity } from "$lib/stores/jobStore.svelte";
     
-    // LOCAL STATE - SET DEFAULTS TO AVOID UNDEFINED
-    let processing = $state({
-        thumbnails: jobState.formData.data.processing?.thumbnails ?? true,
-        metadata: jobState.formData.data.processing?.metadata ?? true,
-        imageResize: jobState.formData.data.processing?.imageResize ?? false,
-        imageWidth: jobState.formData.data.processing?.imageWidth ?? 1280,
-        videoConvert: jobState.formData.data.processing?.videoConvert ?? false,
-        videoFormat: jobState.formData.data.processing?.videoFormat ?? "mp4",
-        extractText: jobState.formData.data.processing?.extractText ?? false,
-        deduplication: jobState.formData.data.processing?.deduplication ?? true,
-        headless: jobState.formData.data.processing?.headless ?? true
-    });
+    let processing = $state(jobState.formData.data.processing);
     
     let isValid = $state(true);
     
-    // INITIALIZE
-    onMount(() => {
-        validate();
-        updateFormData();
-    });
-    
-    // VALIDATE THE STEP
     function validate() {
         let valid = true;
         
@@ -38,7 +20,6 @@
         return valid;
     }
     
-    // UPDATE FORM DATA WITH VALIDATION
     function updateFormData() {
         // CLONE THE PROCESSING OBJECT
         const updatedProcessing = { ...processing };
@@ -54,29 +35,14 @@
         validate();
     }
     
-    // HANDLE FORM INPUT CHANGES
     function handleInputChange() {
         updateFormData();
     }
-    
-    // FIXED EFFECT - TRACK ALL PROCESSING PROPERTIES EXPLICITLY
-    $effect(() => {
-        // TRACK ALL PROPERTIES THAT SHOULD TRIGGER UPDATES
-        const watchedProcessing = {
-            thumbnails: processing.thumbnails,
-            metadata: processing.metadata,
-            imageResize: processing.imageResize,
-            imageWidth: processing.imageWidth,
-            videoConvert: processing.videoConvert,
-            videoFormat: processing.videoFormat,
-            extractText: processing.extractText,
-            deduplication: processing.deduplication,
-            headless: processing.headless
-        };
-        
-        // NOW UPDATEFORMDATA ONLY RUNS WHEN THESE VALUES CHANGE
+
+    onMount(() => {
         updateFormData();
     });
+
 </script>
 
 <div>

@@ -3,7 +3,6 @@
     import { isValidRegex } from "$lib/utils/validation";
     import { state as jobState, setStepValidity } from "$lib/stores/jobStore.svelte";
 
-    // INITIALIZE LOCAL STATE
     let filters = $state(jobState.formData.data.filters || []);
     let rules = $state(
         jobState.formData.data.rules || {
@@ -28,7 +27,6 @@
     let editingIndex = $state(-1);
     let isValid = $state(false);
 
-    // FILTER TYPES
     const filterTypes = [
         {
             id: "url",
@@ -52,40 +50,31 @@
         },
     ];
 
-    // SETUP ON COMPONENT MOUNT
     onMount(() => {
         resetEditingFilter();
-        validate();
     });
 
-    // ADD OR UPDATE FILTER
     function addFilter() {
         if (!editingFilter.name || !editingFilter.pattern) return;
 
         if (editingIndex >= 0) {
-            // Update existing filter
             filters[editingIndex] = { ...editingFilter };
         } else {
-            // Add new filter
             filters = [...filters, { ...editingFilter }];
         }
 
-        // Update the store
         jobState.formData.data.filters = [...filters];
 
-        // Reset form
         resetEditingFilter();
         editingIndex = -1;
         validate();
     }
 
-    // EDIT FILTER
     function editFilter(index) {
         editingFilter = { ...filters[index] };
         editingIndex = index;
     }
 
-    // REMOVE FILTER
     function removeFilter(index) {
         filters = filters.filter((_, i) => i !== index);
         jobState.formData.data.filters = [...filters];
@@ -97,7 +86,6 @@
         validate();
     }
 
-    // RESET EDITING FORM
     function resetEditingFilter() {
         editingFilter = {
             id: generateId(),
@@ -110,14 +98,11 @@
         editingIndex = -1;
     }
 
-    // GENERATE RANDOM ID
     function generateId() {
         return "filter_" + Math.random().toString(36).substring(2, 11);
     }
 
-    // VALIDATE CONFIGURATION
     function validate() {
-        // Check URL patterns if provided
         let valid = true;
 
         if (rules.includeUrlPattern && !isValidRegex(rules.includeUrlPattern)) {
@@ -128,7 +113,6 @@
             valid = false;
         }
 
-        // Validate filters
         filters.forEach((filter) => {
             if (!isValidRegex(filter.pattern)) {
                 valid = false;
@@ -140,9 +124,7 @@
         return valid;
     }
 
-    // UPDATE FORM WITH PROCESSED DATA
     function updateFormData() {
-        // Create a new object to avoid reactivity issues
         const updatedRules = {
             ...rules,
             maxDepth: parseInt(rules.maxDepth) || 0,
@@ -152,15 +134,12 @@
             requestDelay: parseInt(rules.requestDelay) || 0,
         };
         
-        // Only update if values have changed
         if (JSON.stringify(jobState.formData.data.rules) !== JSON.stringify(updatedRules)) {
             jobState.formData.data.rules = updatedRules;
         }
     }
 
-    // FIX FOR INFINITE LOOP: ADD EXPLICIT DEPENDENCIES
     $effect(() => {
-        // Explicitly track all rule properties that we need to watch
         const watchedRules = {
             maxDepth: rules.maxDepth,
             maxAssets: rules.maxAssets,
@@ -172,7 +151,6 @@
             randomizeDelay: rules.randomizeDelay
         };
         
-        // Now updateFormData will only run when these values change
         updateFormData();
     });
 </script>

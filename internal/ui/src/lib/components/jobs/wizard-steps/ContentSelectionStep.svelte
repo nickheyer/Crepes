@@ -3,14 +3,12 @@
     import VisualSelector from "../VisualSelector.svelte";
     import { state as jobState, setStepValidity } from "$lib/stores/jobStore.svelte";
     
-    // LOCAL STATE
-    let view = $state("list"); // 'list' OR 'visual'
+    let view = $state("list");
     let newSelector = $state({
         id: "",
         name: "",
         type: "css",
         value: "",
-        attributeSource: "",
         attribute: "src",
         description: "",
         purpose: "assets",
@@ -23,13 +21,10 @@
     let selectedVisualElements = $state([]);
     let isValid = $state(false);
     
-    // INITIALIZE
     onMount(() => {
         resetNewSelector();
-        validate();
     });
     
-    // WATCH FOR SELECTIONS FROM VISUAL SELECTOR
     $effect(() => {
         if (selectedVisualElement) {
             // POPULATE FORM WITH SELECTED ELEMENT DATA
@@ -51,12 +46,6 @@
         }
     });
     
-    // AUTOMATICALLY UPDATE FORM DATA WHEN SELECTORS CHANGE
-    $effect(() => {
-        validate();
-    });
-    
-    // GET DEFAULT ATTRIBUTE BASED ON PURPOSE
     function getDefaultAttributeForPurpose(purpose) {
         switch(purpose) {
             case "links":
@@ -71,12 +60,10 @@
         }
     }
     
-    // SET DEFAULT ATTRIBUTE WHEN PURPOSE CHANGES
     function handlePurposeChange() {
         newSelector.attribute = getDefaultAttributeForPurpose(newSelector.purpose);
     }
     
-    // ADD OR UPDATE A SELECTOR
     function addSelector() {
         if (!newSelector.name || !newSelector.value) return;
         
@@ -96,12 +83,9 @@
         
         // RESET FORM
         resetNewSelector();
-        
-        // Validate after adding
         validate();
     }
     
-    // EDIT A SELECTOR
     function editSelector(index) {
         newSelector = { ...jobState.formData.data.selectors[index] };
         editingIndex = index;
@@ -112,7 +96,6 @@
         }
     }
     
-    // REMOVE A SELECTOR
     function removeSelector(index) {
         jobState.formData.data.selectors = jobState.formData.data.selectors.filter((_, i) => i !== index);
         
@@ -121,18 +104,15 @@
             editingIndex = -1;
         }
         
-        // Validate after removing
         validate();
     }
     
-    // RESET THE NEW SELECTOR FORM
     function resetNewSelector() {
         newSelector = {
             id: generateId(),
             name: "",
             type: "css",
             value: "",
-            attributeSource: "",
             attribute: "src",
             description: "",
             purpose: "assets",
@@ -143,26 +123,20 @@
         editingIndex = -1;
     }
     
-    // GENERATE A RANDOM ID
     function generateId() {
         return "sel_" + Math.random().toString(36).substring(2, 11);
     }
     
-    // SWITCH BETWEEN LIST AND VISUAL VIEWS
     function switchView(newView) {
         view = newView;
     }
     
-    // VALIDATE THE STEP
     function validate() {
-        // CHECK IF WE HAVE AT LEAST ONE SELECTOR
         const hasLinks = jobState.formData.data.selectors.some((sel) => sel.purpose === "links");
         const hasAssets = jobState.formData.data.selectors.some((sel) => sel.purpose === "assets");
         isValid = jobState.formData.data.selectors.length > 0 && hasLinks && hasAssets;
-        
-        // Update step validity in the store
+    
         setStepValidity(2, isValid);
-        
         return isValid;
     }
 </script>

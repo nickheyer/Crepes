@@ -8,9 +8,8 @@
         loadAssets
     } from "$lib/stores/assetStore.svelte";
 
-    // State
     let loading = $state(true);
-    let view = $state("grid"); // 'grid' or 'list'
+    let view = $state("grid");
 
     onMount(async () => {
         try {

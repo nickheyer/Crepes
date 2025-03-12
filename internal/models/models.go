@@ -72,17 +72,16 @@ type Setting struct {
 
 // SELECTOR MODEL (NOT STORED DIRECTLY, USED IN JOB SELECTORS)
 type Selector struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	Type            string `json:"type"`
-	Value           string `json:"value"`
-	AttributeSource string `json:"attributeSource"`
-	Attribute       string `json:"attribute"`
-	Description     string `json:"description"`
-	Purpose         string `json:"purpose"`
-	Priority        int    `json:"priority"`
-	IsOptional      bool   `json:"isOptional"`
-	URLPattern      string `json:"urlPattern"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	Value       string `json:"value"`
+	Attribute   string `json:"attribute"`
+	Description string `json:"description"`
+	Purpose     string `json:"purpose"`
+	Priority    int    `json:"priority"`
+	IsOptional  bool   `json:"isOptional"`
+	URLPattern  string `json:"urlPattern"`
 }
 
 // FILTER MODEL (NOT STORED DIRECTLY, USED IN JOB FILTERS)
@@ -96,7 +95,7 @@ type Filter struct {
 }
 
 // JSON ARRAY TYPE FOR STORING ARRAYS IN SQLITE
-type JSONArray []interface{}
+type JSONArray []any
 
 // SCAN FROM DB VALUE
 func (j *JSONArray) Scan(value interface{}) error {

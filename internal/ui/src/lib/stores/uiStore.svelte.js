@@ -1,4 +1,4 @@
-// UI STORE STATE - USING SVELTE 5 RUNES
+// UI STORE USING SVELTE 5 RUNES
 export const state = $state({
   isSidebarOpen: false,
   toasts: [],
@@ -14,12 +14,18 @@ export function toggleSidebar() {
 // ADD A TOAST NOTIFICATION
 export function addToast(message, type = 'info', duration = 4000) {
   const id = Date.now().toString();
-  
   state.toasts = [
     ...state.toasts,
     { id, message, type, duration }
   ];
-
+  
+  // AUTO-REMOVE TOAST AFTER DURATION
+  if (duration > 0) {
+    setTimeout(() => {
+      removeToast(id);
+    }, duration);
+  }
+  
   return id;
 }
 
@@ -78,10 +84,13 @@ export async function initTheme() {
         const data = await response.json();
         if (data.success && data.data.userConfig && data.data.userConfig.theme) {
           applyTheme(data.data.userConfig.theme);
+        } else {
+          // FALLBACK TO DEFAULT THEME
+          applyTheme('default');
         }
       }
     } catch (error) {
-      console.error('Failed to load theme from API:', error);
+      console.error('FAILED TO LOAD THEME FROM API:', error);
       // FALLBACK TO DEFAULT THEME
       applyTheme('default');
     }

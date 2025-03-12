@@ -21,9 +21,6 @@ export const state = $state({
 export async function loadTemplates() {
   state.templatesLoading = true;
   try {
-    const { fetchTemplates } = await import('$lib/utils/api');
-    const { addToast } = await import('$lib/stores/uiStore.svelte');
-    
     const data = await fetchTemplates();
     
     // NORMALIZE TEMPLATE DATA
@@ -45,8 +42,6 @@ export async function loadTemplates() {
     state.templates = normalizedTemplates;
     return normalizedTemplates;
   } catch (error) {
-    const { addToast } = await import('$lib/stores/uiStore.svelte');
-    addToast(`FAILED TO LOAD TEMPLATES: ${error.message}`, 'error');
     return [];
   } finally {
     state.templatesLoading = false;
@@ -56,7 +51,6 @@ export async function loadTemplates() {
 // LOAD TEMPLATE EXAMPLES
 export async function loadTemplateExamples() {
   try {
-    const { fetchTemplateExamples } = await import('$lib/utils/api');
     const data = await fetchTemplateExamples();
     state.templateExamples = data;
     return data;
@@ -69,9 +63,6 @@ export async function loadTemplateExamples() {
 // CREATE TEMPLATE
 export async function createNewTemplate(templateData) {
   try {
-    const { createTemplate } = await import('$lib/utils/api');
-    const { addToast } = await import('$lib/stores/uiStore.svelte');
-    
     // ENSURE ID IS SET BY BACKEND
     const dataToSend = { ...templateData };
     if (dataToSend.id) {
@@ -81,11 +72,9 @@ export async function createNewTemplate(templateData) {
     const newTemplate = await createTemplate(dataToSend);
     state.templates = [newTemplate, ...state.templates];
     
-    addToast('TEMPLATE CREATED SUCCESSFULLY', 'success');
     return newTemplate;
   } catch (error) {
-    const { addToast } = await import('$lib/stores/uiStore.svelte');
-    addToast(`FAILED TO CREATE TEMPLATE: ${error.message}`, 'error');
+    
     throw error;
   }
 }
@@ -93,19 +82,14 @@ export async function createNewTemplate(templateData) {
 // UPDATE TEMPLATE
 export async function updateExistingTemplate(templateId, templateData) {
   try {
-    const { updateTemplate } = await import('$lib/utils/api');
-    const { addToast } = await import('$lib/stores/uiStore.svelte');
-    
     const updatedTemplate = await updateTemplate(templateId, templateData);
     state.templates = state.templates.map(template => 
       template.id === templateId ? {...template, ...updatedTemplate} : template
     );
     
-    addToast('TEMPLATE UPDATED SUCCESSFULLY', 'success');
     return updatedTemplate;
   } catch (error) {
-    const { addToast } = await import('$lib/stores/uiStore.svelte');
-    addToast(`FAILED TO UPDATE TEMPLATE: ${error.message}`, 'error');
+    
     throw error;
   }
 }
@@ -113,16 +97,9 @@ export async function updateExistingTemplate(templateId, templateData) {
 // DELETE TEMPLATE
 export async function removeTemplate(templateId) {
   try {
-    const { deleteTemplate } = await import('$lib/utils/api');
-    const { addToast } = await import('$lib/stores/uiStore.svelte');
-    
     await deleteTemplate(templateId);
     state.templates = state.templates.filter(template => template.id !== templateId);
-    
-    addToast('TEMPLATE DELETED SUCCESSFULLY', 'success');
   } catch (error) {
-    const { addToast } = await import('$lib/stores/uiStore.svelte');
-    addToast(`FAILED TO DELETE TEMPLATE: ${error.message}`, 'error');
     throw error;
   }
 }
@@ -135,15 +112,9 @@ export function selectTemplate(template) {
 // CREATE JOB FROM TEMPLATE
 export async function createJobFromTemplateId(templateId) {
   try {
-    const { createJobFromTemplate } = await import('$lib/utils/api');
-    const { addToast } = await import('$lib/stores/uiStore.svelte');
-    
     const job = await createJobFromTemplate(templateId);
-    addToast('JOB CREATED SUCCESSFULLY FROM TEMPLATE', 'success');
     return job;
   } catch (error) {
-    const { addToast } = await import('$lib/stores/uiStore.svelte');
-    addToast(`FAILED TO CREATE JOB FROM TEMPLATE: ${error.message}`, 'error');
     throw error;
   }
 }
@@ -163,8 +134,6 @@ export async function useTemplateExample(exampleKey) {
       throw new Error('TEMPLATE EXAMPLE NOT FOUND');
     }
   } catch (error) {
-    const { addToast } = await import('$lib/stores/uiStore.svelte');
-    addToast(`FAILED TO LOAD TEMPLATE EXAMPLE: ${error.message}`, 'error');
     throw error;
   }
 }

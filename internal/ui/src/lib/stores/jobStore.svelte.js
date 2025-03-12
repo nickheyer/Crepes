@@ -8,7 +8,9 @@ import {
   stopJob, 
   fetchJobStatistics 
 } from '$lib/utils/api';
+import { isValidUrl, isValidCron, validateField } from '$lib/utils/validation';
 
+// BASE FORM DATA SCHEMA WITH DEFAULT VALUES
 export const formDataBase = {
   step: 1,
   data: {
@@ -47,7 +49,9 @@ export const formDataBase = {
     4: false,
     5: false,
     6: true
-  }
+  },
+  // TRACK VALIDATION ERRORS
+  errors: {}
 };
 
 export const state = $state({
@@ -56,27 +60,27 @@ export const state = $state({
   jobsLoading: false,
   createJobModal: false,
   editJobModal: false,
-  formData: structuredClone(formDataBase),
+  formData: Object.assign({}, formDataBase),
+  updating: false
 });
 
-// DERIVED STORES FOR DIFFERENT JOB STATUSES
-const runningJobsDer = $derived(() => 
+const runningJobsDer = $derived(
   state.jobs.filter(job => job.status === 'running')
 );
 
-export const runningJobs = () => runningJobsDer();
+export const runningJobs = () => runningJobsDer;
 
-const completedJobsDer = $derived(() => 
+const completedJobsDer = $derived(
   state.jobs.filter(job => job.status === 'completed')
 );
 
-export const completedJobs = () => completedJobsDer();
+export const completedJobs = () => completedJobsDer;
 
-const failedJobsDer = $derived(() => 
+const failedJobsDer = $derived(
   state.jobs.filter(job => job.status === 'failed')
 );
 
-export const failedJobs = () => failedJobsDer();
+export const failedJobs = () => failedJobsDer;
 
 // LOAD JOBS FROM API
 export async function loadJobs() {
@@ -101,7 +105,6 @@ export async function loadJobs() {
     state.jobs = normalizedJobs;
     return normalizedJobs;
   } catch (error) {
-    addToast(`FAILED TO LOAD JOBS: ${error.message}`, 'error');
     return [];
   } finally {
     state.jobsLoading = false;
@@ -112,8 +115,7 @@ export async function loadJobs() {
 export async function loadJobDetails(jobId) {
   try {
     // GET JOB FROM EXISTING JOBS OR FETCH IT
-    const existingJobs = state.jobs;
-    const existingJob = existingJobs.find(j => j.id === jobId);
+    const existingJob = state.jobs.find(j => j.id === jobId);
     let job = existingJob;
     
     if (!job) {
@@ -136,12 +138,10 @@ export async function loadJobDetails(jobId) {
     state.selectedJob = job;
     return job;
   } catch (error) {
-    addToast(`FAILED TO LOAD JOB DETAILS: ${error.message}`, 'error');
     throw error;
   }
 }
 
-// CREATE A NEW JOB
 export async function createNewJob(jobData) {
   try {
     // ENSURE ID IS SET BY BACKEND
@@ -152,35 +152,26 @@ export async function createNewJob(jobData) {
     
     const newJob = await createJob(dataToSend);
     state.jobs = [newJob, ...state.jobs];
-
-    addToast('JOB CREATED SUCCESSFULLY', 'success');
     return newJob;
   } catch (error) {
-    addToast(`FAILED TO CREATE JOB: ${error.message}`, 'error');
     throw error;
   }
 }
 
-// UPDATE AN EXISTING JOB
 export async function updateExistingJob(jobId, jobData) {
   try {
     const updatedJob = await updateJob(jobId, jobData);
     state.jobs = state.jobs.map(job => job.id === jobId ? {...job, ...updatedJob} : job);
-
-    addToast('JOB UPDATED SUCCESSFULLY', 'success');
     return updatedJob;
   } catch (error) {
-    addToast(`FAILED TO UPDATE JOB: ${error.message}`, 'error');
     throw error;
   }
 }
 
-// DELETE A JOB
 export async function removeJob(jobId) {
   try {
     await deleteJob(jobId);
     state.jobs = state.jobs.filter(job => job.id !== jobId);
-
     addToast('JOB DELETED SUCCESSFULLY', 'success');
   } catch (error) {
     addToast(`FAILED TO DELETE JOB: ${error.message}`, 'error');
@@ -188,73 +179,303 @@ export async function removeJob(jobId) {
   }
 }
 
-// START A JOB
 export async function startJobById(jobId) {
   try {
     await startJob(jobId);
     state.jobs = state.jobs.map(job => job.id === jobId ? {...job, status: 'running'} : job);
-
-    addToast('JOB STARTED SUCCESSFULLY', 'success');
     return true;
   } catch (error) {
-    addToast(`FAILED TO START JOB: ${error.message}`, 'error');
     throw error;
   }
 }
 
-// STOP A JOB
 export async function stopJobById(jobId) {
   try {
     await stopJob(jobId);
     state.jobs = state.jobs.map(job => job.id === jobId ? {...job, status: 'stopped'} : job);
-
-    addToast('JOB STOPPED SUCCESSFULLY', 'success');
     return true;
   } catch (error) {
-    addToast(`FAILED TO STOP JOB: ${error.message}`, 'error');
     throw error;
+  }
+}
+
+// STEP 1: BASIC INFO VALIDATION
+function validateStep1() {
+  const data = state.formData.data;
+  const errors = {};
+  
+  // Validate job name
+  const nameValidation = validateField(data.name, {
+    required: true,
+    minLength: 3,
+    maxLength: 50,
+  });
+  
+  if (!nameValidation.valid) {
+    errors.name = nameValidation.message;
+  }
+  
+  // Validate base URL
+  if (!data.baseUrl) {
+    errors.baseUrl = "Base URL is required";
+  } else if (!isValidUrl(data.baseUrl)) {
+    errors.baseUrl = "Please enter a valid URL";
+  }
+  
+  // Validate description (optional)
+  if (data.description && data.description.length > 500) {
+    errors.description = "Description should be 500 characters or less";
+  }
+  
+  // Update errors in store
+  state.formData.errors = { ...state.formData.errors, step1: errors };
+  
+  // Step is valid if there are no errors
+  const isValid = Object.keys(errors).length === 0;
+  setStepValidity(1, isValid);
+  
+  return isValid;
+}
+
+// STEP 2: CONTENT SELECTION VALIDATION
+function validateStep2() {
+  const selectors = state.formData.data.selectors || [];
+  const errors = {};
+  
+  // Check if we have at least one selector
+  if (selectors.length === 0) {
+    errors.general = "At least one selector is required";
+  }
+  
+  // Check if we have both links and assets selectors
+  const hasLinks = selectors.some(sel => sel.purpose === "links");
+  const hasAssets = selectors.some(sel => sel.purpose === "assets");
+  
+  if (!hasLinks) {
+    errors.links = "At least one 'links' selector is required";
+  }
+  
+  if (!hasAssets) {
+    errors.assets = "At least one 'assets' selector is required";
+  }
+  
+  // Check individual selectors
+  const selectorErrors = [];
+  selectors.forEach((selector, index) => {
+    const selectorError = {};
+    
+    if (!selector.name) {
+      selectorError.name = "Selector name is required";
+    }
+    
+    if (!selector.value) {
+      selectorError.value = "Selector value is required";
+    }
+    
+    if (!selector.purpose) {
+      selectorError.purpose = "Selector purpose is required";
+    }
+    
+    if (Object.keys(selectorError).length > 0) {
+      selectorErrors[index] = selectorError;
+    }
+  });
+  
+  if (selectorErrors.length > 0) {
+    errors.selectors = selectorErrors;
+  }
+  
+  // Update errors in store
+  state.formData.errors = { ...state.formData.errors, step2: errors };
+  
+  // Step is valid if there are links and assets selectors and no errors
+  const isValid = hasLinks && hasAssets && Object.keys(errors).length === 0;
+  setStepValidity(2, isValid);
+  
+  return isValid;
+}
+
+// STEP 3: FILTERING VALIDATION
+function validateStep3() {
+  const rules = state.formData.data.rules || {};
+  const filters = state.formData.data.filters || [];
+  const errors = {};
+  
+  // Validate URL patterns if provided
+  if (rules.includeUrlPattern && !isValidRegex(rules.includeUrlPattern)) {
+    errors.includeUrlPattern = "Invalid regex pattern";
+  }
+  
+  if (rules.excludeUrlPattern && !isValidRegex(rules.excludeUrlPattern)) {
+    errors.excludeUrlPattern = "Invalid regex pattern";
+  }
+  
+  // Validate filters
+  const filterErrors = [];
+  filters.forEach((filter, index) => {
+    const filterError = {};
+    
+    if (!filter.name) {
+      filterError.name = "Filter name is required";
+    }
+    
+    if (!filter.pattern) {
+      filterError.pattern = "Filter pattern is required";
+    } else if (!isValidRegex(filter.pattern)) {
+      filterError.pattern = "Invalid regex pattern";
+    }
+    
+    if (Object.keys(filterError).length > 0) {
+      filterErrors[index] = filterError;
+    }
+  });
+  
+  if (filterErrors.length > 0) {
+    errors.filters = filterErrors;
+  }
+  
+  // Update errors in store
+  state.formData.errors = { ...state.formData.errors, step3: errors };
+  
+  // Step is always valid unless there are specific errors
+  const isValid = Object.keys(errors).length === 0;
+  setStepValidity(3, isValid);
+  
+  return isValid;
+}
+
+// STEP 4: PROCESSING VALIDATION
+function validateStep4() {
+  const processing = state.formData.data.processing || {};
+  const errors = {};
+  
+  // Validate image width if resize is enabled
+  if (processing.imageResize) {
+    const width = parseInt(processing.imageWidth);
+    if (isNaN(width) || width < 100 || width > 10000) {
+      errors.imageWidth = "Image width must be between 100 and 10000 pixels";
+    }
+  }
+  
+  // Update errors in store
+  state.formData.errors = { ...state.formData.errors, step4: errors };
+  
+  // Step is valid if there are no errors
+  const isValid = Object.keys(errors).length === 0;
+  setStepValidity(4, isValid);
+  
+  return isValid;
+}
+
+// STEP 5: SCHEDULE VALIDATION
+function validateStep5() {
+  const schedule = state.formData.data.schedule;
+  const errors = {};
+  
+  // Validate cron expression if provided
+  if (schedule && !isValidCron(schedule)) {
+    errors.schedule = "Invalid cron expression format";
+  }
+  
+  // Update errors in store
+  state.formData.errors = { ...state.formData.errors, step5: errors };
+  
+  // Step is valid if there are no errors
+  const isValid = Object.keys(errors).length === 0;
+  setStepValidity(5, isValid);
+  
+  return isValid;
+}
+
+// HELPER FUNCTION FOR REGEX VALIDATION
+function isValidRegex(pattern) {
+  if (!pattern) return true; // Empty pattern is valid
+  
+  try {
+    new RegExp(pattern);
+    return true;
+  } catch (e) {
+    return false;
   }
 }
 
 // UPDATE A SPECIFIC STEP IN THE JOB WIZARD
 export function updateJobWizardStep(step, data) {
-  if (!data) return;
+  if (!data || state.updating) return;
   
-  // CREATE DEEP CLONE OF CURRENT STATE FOR IMMUTABILITY
-  const updatedFormData = state.formData;
-  
-  // MERGE THE NEW DATA AT THE TOP LEVEL
-  for (const [key, value] of Object.entries(data)) {
-    // HANDLE ARRAYS PROPERLY - REPLACE RATHER THAN MERGE
-    if (Array.isArray(value)) {
-      updatedFormData.data[key] = [...value];
-    } 
-    // HANDLE OBJECTS (EXCEPT ARRAYS) WITH DEEP MERGE
-    else if (value && typeof value === 'object' && !Array.isArray(value)) {
-      updatedFormData.data[key] = updatedFormData.data[key] || {};
-      for (const [nestedKey, nestedValue] of Object.entries(value)) {
-        updatedFormData.data[key][nestedKey] = nestedValue;
+  try {
+    // SET UPDATING FLAG TO PREVENT INFINITE LOOPS
+    state.updating = true;
+    
+    // UPDATE THE FORM DATA WITH NEW VALUES
+    const newFormData = { ...state.formData };
+    
+    // HANDLE EACH TOP-LEVEL FIELD
+    for (const key in data) {
+      if (data.hasOwnProperty(key)) {
+        // HANDLE ARRAYS - REPLACE ENTIRELY
+        if (Array.isArray(data[key])) {
+          newFormData.data[key] = [...data[key]];
+        }
+        // HANDLE OBJECTS - MERGE
+        else if (data[key] && typeof data[key] === 'object') {
+          newFormData.data[key] = { ...newFormData.data[key], ...data[key] };
+        }
+        // HANDLE PRIMITIVES
+        else {
+          newFormData.data[key] = data[key];
+        }
       }
-    } 
-    // HANDLE PRIMITIVES WITH DIRECT ASSIGNMENT
-    else {
-      updatedFormData.data[key] = value;
     }
+    
+    // UPDATE STATE
+    state.formData = newFormData;
+    
+    // VALIDATE CURRENT STEP
+    validateCurrentStep(step);
+  } finally {
+    // CLEAR UPDATING FLAG
+    state.updating = false;
   }
+}
 
-  state.formData = updatedFormData;
-  
-  // MARK STEP AS VALID
-  if (step && step > 0 && step <= 6) {
-    updatedFormData.stepValidity[step] = true;
+// VALIDATE THE CURRENT STEP
+function validateCurrentStep(step) {
+  switch (step) {
+    case 1:
+      validateStep1();
+      break;
+    case 2:
+      validateStep2();
+      break;
+    case 3:
+      validateStep3();
+      break;
+    case 4:
+      validateStep4();
+      break;
+    case 5:
+      validateStep5();
+      break;
+    case 6:
+      // Summary step is always valid
+      setStepValidity(6, true);
+      break;
+    default:
+      break;
   }
 }
 
 // SET STEP VALIDITY
 export function setStepValidity(step, isValid) {
-  if (step && step > 0 && step <= 6) {
-    state.formData.stepValidity[step] = isValid;
+  if (!state.updating && step && step > 0 && step <= 6) {
+    state.formData.stepValidity = { ...state.formData.stepValidity, [step]: isValid };
   }
+}
+
+// GET ERRORS FOR A SPECIFIC STEP
+export function getStepErrors(step) {
+  return state.formData.errors[`step${step}`] || {};
 }
 
 // RESET JOB WIZARD STATE
@@ -262,9 +483,185 @@ export function resetJobWizard() {
   state.formData = structuredClone(formDataBase);
 }
 
-// GO TO A SPECIFIC STEP WHILE PERSISTING DATA
+// GO TO A SPECIFIC STEP
 export function setJobWizardStep(step) {
   if (step > 0 && step <= 6) {
     state.formData.step = step;
+    validateCurrentStep(step);
+  }
+}
+
+export function updateField(fieldPath, value) {
+  if (state.updating) return;
+  
+  try {
+    // SET UPDATING FLAG
+    state.updating = true;
+    
+    // CREATE NEW STATE COPY
+    const newFormData = { ...state.formData };
+    
+    // PARSE THE PATH AND UPDATE NESTED FIELD
+    const pathParts = fieldPath.split('.');
+    let current = newFormData.data;
+    
+    // NAVIGATE TO THE PARENT OBJECT
+    for (let i = 0; i < pathParts.length - 1; i++) {
+      const part = pathParts[i];
+      
+      // CREATE OBJECT IF IT DOESN'T EXIST
+      if (!current[part]) {
+        current[part] = {};
+      }
+      
+      // HANDLE ARRAY INDICES
+      if (Array.isArray(current[part]) && pathParts[i+1].match(/^\d+$/)) {
+        const index = parseInt(pathParts[i+1]);
+        if (index >= current[part].length) {
+          current[part].push({});
+        }
+      }
+      
+      // MOVE TO NEXT LEVEL
+      current = current[part];
+    }
+    
+    // SET THE VALUE
+    const lastPart = pathParts[pathParts.length - 1];
+    current[lastPart] = value;
+    
+    // UPDATE STATE
+    state.formData = newFormData;
+    
+    // VALIDATE CURRENT STEP
+    validateCurrentStep(state.formData.step);
+  } finally {
+    // CLEAR UPDATING FLAG
+    state.updating = false;
+  }
+}
+
+export function addArrayItem(arrayPath, item) {
+  if (state.updating) return;
+  
+  try {
+    // SET UPDATING FLAG
+    state.updating = true;
+    
+    // CREATE NEW STATE COPY
+    const newFormData = { ...state.formData };
+    
+    // PARSE THE PATH AND FIND THE ARRAY
+    const pathParts = arrayPath.split('.');
+    let current = newFormData.data;
+    
+    // NAVIGATE TO THE ARRAY
+    for (let i = 0; i < pathParts.length; i++) {
+      const part = pathParts[i];
+      
+      // CREATE OBJECT/ARRAY IF IT DOESN'T EXIST
+      if (!current[part]) {
+        current[part] = [];
+      }
+      
+      if (i === pathParts.length - 1) {
+        // WE'VE REACHED THE ARRAY
+        if (Array.isArray(current[part])) {
+          current[part].push(item);
+        }
+      } else {
+        // MOVE TO NEXT LEVEL
+        current = current[part];
+      }
+    }
+    
+    // UPDATE STATE
+    state.formData = newFormData;
+    
+    // VALIDATE CURRENT STEP
+    validateCurrentStep(state.formData.step);
+  } finally {
+    // CLEAR UPDATING FLAG
+    state.updating = false;
+  }
+}
+
+export function removeArrayItem(arrayPath, index) {
+  if (state.updating) return;
+  
+  try {
+    // SET UPDATING FLAG
+    state.updating = true;
+    
+    // CREATE NEW STATE COPY
+    const newFormData = { ...state.formData };
+    
+    // PARSE THE PATH AND FIND THE ARRAY
+    const pathParts = arrayPath.split('.');
+    let current = newFormData.data;
+    
+    // NAVIGATE TO THE ARRAY
+    for (let i = 0; i < pathParts.length; i++) {
+      const part = pathParts[i];
+      
+      if (i === pathParts.length - 1) {
+        // WE'VE REACHED THE ARRAY
+        if (Array.isArray(current[part]) && index >= 0 && index < current[part].length) {
+          current[part].splice(index, 1);
+        }
+      } else {
+        // MOVE TO NEXT LEVEL
+        current = current[part];
+      }
+    }
+    
+    // UPDATE STATE
+    state.formData = newFormData;
+    
+    // VALIDATE CURRENT STEP
+    validateCurrentStep(state.formData.step);
+  } finally {
+    // CLEAR UPDATING FLAG
+    state.updating = false;
+  }
+}
+
+export function updateArrayItem(arrayPath, index, item) {
+  if (state.updating) return;
+  
+  try {
+    // SET UPDATING FLAG
+    state.updating = true;
+    
+    // CREATE NEW STATE COPY
+    const newFormData = { ...state.formData };
+    
+    // PARSE THE PATH AND FIND THE ARRAY
+    const pathParts = arrayPath.split('.');
+    let current = newFormData.data;
+    
+    // NAVIGATE TO THE ARRAY
+    for (let i = 0; i < pathParts.length; i++) {
+      const part = pathParts[i];
+      
+      if (i === pathParts.length - 1) {
+        // WE'VE REACHED THE ARRAY
+        if (Array.isArray(current[part]) && index >= 0 && index < current[part].length) {
+          current[part][index] = item;
+        }
+      } else {
+        // MOVE TO NEXT LEVEL
+        current = current[part];
+      }
+    }
+    
+    // UPDATE STATE
+    state.formData = newFormData;
+    
+    // VALIDATE CURRENT STEP
+    validateCurrentStep(state.formData.step);
+  } finally {
+    // CLEAR UPDATING FLAG
+    state.updating = false;
   }
 }

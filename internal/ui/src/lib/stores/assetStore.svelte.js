@@ -88,11 +88,11 @@ const filteredAssetsDer = $derived(() => {
 
 export const filteredAssets = () => filteredAssetsDer();
 
-// GROUPED ASSETS BY TYPE USING SVELTE 5 RUNES
 const assetsByTypeDer = $derived(() => {
   const groups = {};
   // ENSURE ASSETS IS ALWAYS AN ARRAY
   const assetArray = Array.isArray(state.assets) ? state.assets : [];
+
   assetArray.forEach(asset => {
     const type = asset.type || 'unknown';
     if (!groups[type]) {
@@ -126,7 +126,6 @@ export async function loadAssets(filters = {}) {
     
     return data;
   } catch (error) {
-    addToast(`FAILED TO LOAD ASSETS: ${error.message}`, 'error');
     // SET EMPTY ARRAY ON ERROR
     state.assets = [];
     return { assets: [], counts: {} };
@@ -138,12 +137,10 @@ export async function loadAssets(filters = {}) {
 // LOAD ASSET DETAILS
 export async function loadAssetDetails(assetId) {
   try {
-    const { fetchAssetDetails } = await import('$lib/utils/api');
     const asset = await fetchAssetDetails(assetId);
     state.selectedAsset = asset;
     return asset;
   } catch (error) {
-    addToast(`FAILED TO LOAD ASSET DETAILS: ${error.message}`, 'error');
     throw error;
   }
 }
@@ -151,25 +148,20 @@ export async function loadAssetDetails(assetId) {
 // DELETE AN ASSET
 export async function removeAsset(assetId) {
   try {
-    const { deleteAsset } = await import('$lib/utils/api');
     await deleteAsset(assetId);
-    
     // UPDATE ASSETS STORE SAFELY
-    const updatedAssets = Array.isArray(state.assets) 
+    const updatedAssets = Array.isArray(state.assets)
       ? state.assets.filter(asset => asset.id !== assetId)
       : [];
     state.assets = updatedAssets;
-    
+
     // UPDATE COUNTS
     const asset = state.assets.find(a => a.id === assetId);
     if (asset && state.assetCounts[asset.type]) {
       state.assetCounts[asset.type]--;
     }
     state.assetCounts.total--;
-    
-    addToast('ASSET DELETED SUCCESSFULLY', 'success');
   } catch (error) {
-    addToast(`FAILED TO DELETE ASSET: ${error.message}`, 'error');
     throw error;
   }
 }
@@ -177,30 +169,25 @@ export async function removeAsset(assetId) {
 // REGENERATE THUMBNAIL FOR AN ASSET
 export async function regenerateAssetThumbnail(assetId) {
   try {
-    const { regenerateThumbnail } = await import('$lib/utils/api');
     const result = await regenerateThumbnail(assetId);
-    
     // UPDATE ASSET IN STORE SAFELY
-    state.assets = Array.isArray(state.assets) 
-      ? state.assets.map(asset => 
-          asset.id === assetId 
-            ? { ...asset, thumbnailPath: result.thumbnailPath } 
-            : asset
-        )
+    state.assets = Array.isArray(state.assets)
+      ? state.assets.map(asset =>
+        asset.id === assetId
+          ? { ...asset, thumbnailPath: result.thumbnailPath }
+          : asset
+      )
       : [];
-    
+
     // UPDATE SELECTED ASSET IF IT'S THE SAME ONE
     if (state.selectedAsset && state.selectedAsset.id === assetId) {
-      state.selectedAsset = { 
-        ...state.selectedAsset, 
-        thumbnailPath: result.thumbnailPath 
+      state.selectedAsset = {
+        ...state.selectedAsset,
+        thumbnailPath: result.thumbnailPath
       };
     }
-    
-    addToast('THUMBNAIL REGENERATED SUCCESSFULLY', 'success');
     return result.thumbnailPath;
   } catch (error) {
-    addToast(`FAILED TO REGENERATE THUMBNAIL: ${error.message}`, 'error');
     throw error;
   }
 }
@@ -238,4 +225,3 @@ export function viewAsset(asset) {
 export function closeAssetViewer() {
   state.assetViewerOpen = false;
 }
-

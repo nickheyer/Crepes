@@ -48,11 +48,25 @@
         { id: "size", label: "Size" },
     ];
     
+    // LOAD JOBS FOR JOB FILTER
     onMount(async () => {
         if (!jobState.jobs || jobState.jobs.length === 0) {
             await loadJobs();
         }
         jobsLoaded = true;
+        
+        // SYNC LOCAL STATE WITH STORE
+        filterState = {
+            type: assetState.assetFilters.type || "",
+            jobId: assetState.assetFilters.jobId || "",
+            search: assetState.assetFilters.search || "",
+            dateRange: {
+                from: assetState.assetFilters.dateRange?.from || null,
+                to: assetState.assetFilters.dateRange?.to || null,
+            },
+            sortBy: assetState.assetFilters.sortBy || "date",
+            sortDirection: assetState.assetFilters.sortDirection || "desc",
+        };
     });
     
     function toggleExpanded() {

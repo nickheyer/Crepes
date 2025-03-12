@@ -1,6 +1,7 @@
 <script>
   import { createEventDispatcher } from "svelte";
   
+  // DEFINE PROPS USING $PROPS RUNE
   let {
       variant = 'primary',
       size = 'md',

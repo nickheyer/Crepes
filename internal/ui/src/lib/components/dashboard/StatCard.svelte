@@ -40,31 +40,15 @@
     function getColorClass() {
         switch (color) {
             case "primary":
-                return "text-primary";
+                return "bg-primary text-primary-content";
             case "success":
-                return "text-success";
+                return "bg-success text-success-content";
             case "warning":
-                return "text-warning";
+                return "bg-warning text-warning-content";
             case "danger":
-                return "text-error";
+                return "bg-error text-error-content";
             default:
-                return "text-primary";
-        }
-    }
-    
-    // GET BADGE COLOR CLASS
-    function getBadgeColor() {
-        switch (color) {
-            case "primary":
-                return "badge-primary";
-            case "success":
-                return "badge-success";
-            case "warning":
-                return "badge-warning";
-            case "danger":
-                return "badge-error";
-            default:
-                return "badge-primary";
+                return "bg-primary text-primary-content";
         }
     }
     
@@ -82,19 +66,20 @@
     }
 </script>
 
-<a {href} class="block">
-    <div class="stat bg-base-200 shadow hover:shadow-lg transition-shadow" in:fade={{ duration: 200 }}>
+<a {href} class="block transition-transform hover:scale-102">
+    <div class="stat bg-base-200 shadow-xl hover:shadow-2xl transition-all duration-300 rounded-xl" in:fade={{ duration: 200 }}>
         <div class="stat-figure">
-            <div class={`p-3 rounded-lg badge ${getBadgeColor()} badge-lg`}>
-                <IconComponent size={20} />
+            <div class={`p-3 rounded-lg ${getColorClass()}`}>
+                <IconComponent size={24} />
             </div>
         </div>
         
-        <div class="stat-title">{title}</div>
-        <div class="stat-value">{value}</div>
+        <div class="stat-title font-medium text-base-content opacity-70">{title}</div>
+        
+        <div class="stat-value text-3xl font-bold">{value}</div>
         
         {#if trend !== null}
-            <div class={`stat-desc ${getTrendColor(trend)} flex items-center`}>
+            <div class={`stat-desc ${getTrendColor(trend)} flex items-center text-sm font-medium mt-1`}>
                 <span>{formatTrend(trend)}</span>
                 <span class="ml-1">
                     {#if trend >= 0}

@@ -3,6 +3,6 @@
   "storagePath": "storage",
   "thumbnailsPath": "thumbnails",
   "dataPath": "data",
-  "maxConcurrent": 5,
+  "maxConcurrent": 3,
   "defaultTimeout": 300000
 }

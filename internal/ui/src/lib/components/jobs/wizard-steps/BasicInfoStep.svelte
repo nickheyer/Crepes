@@ -1,151 +1,79 @@
 <script>
-  import { onMount } from "svelte";
-  import { isValidUrl, validateField } from "$lib/utils/validation";
   import { state as jobState } from "$lib/stores/jobStore.svelte";
-  
-  // Local state
+
   let newTag = $state("");
-  
-  // Validation state
-  let errors = $state({
-    jobName: "",
-    baseUrl: "",
-    description: "",
-  });
-  
-  // Validate step
-  function validate() {
-    const newErrors = {
-      jobName: "",
-      baseUrl: "",
-      description: "",
-    };
-    // Validate job name
-    const nameValidation = validateField(jobState.formData.data.name, {
-      required: true,
-      minLength: 3,
-      maxLength: 50,
-    });
-    if (!nameValidation.valid) {
-      newErrors.jobName = nameValidation.message;
-    }
-    // Validate base URL
-    if (!jobState.formData.data.baseUrl) {
-      newErrors.baseUrl = "Base URL is required";
-    } else if (!isValidUrl(jobState.formData.data.baseUrl)) {
-      newErrors.baseUrl = "Please enter a valid URL";
-    }
-    // Validate description (optional)
-    if (jobState.formData.data.description && jobState.formData.data.description.length > 500) {
-      newErrors.description = "Description should be 500 characters or less";
-    }
-    errors = newErrors;
-    // Step is valid if there are no errors
-    const isValid = !Object.values(newErrors).some((error) => error);
-    return isValid;
-  }
-  
-  // Update formData and validate
-  function updateFormData() {
-    validate();
-  }
-  
+
   function addTag() {
     if (newTag && !jobState.formData.data.tags.includes(newTag)) {
       jobState.formData.data.tags = [...jobState.formData.data.tags, newTag];
       newTag = "";
-      updateFormData();
     }
   }
-  
+
   function removeTag(tag) {
     jobState.formData.data.tags = jobState.formData.data.tags.filter((t) => t !== tag);
-    updateFormData();
   }
-  
-  // Initialize validation on mount and any input change
-  onMount(() => {
-    validate();
-  });
-  
-  // Watch for input changes
-  $effect(() => {
-    updateFormData();
-  });
 </script>
+
 <div>
   <h2 class="text-xl font-semibold mb-4">Basic Information</h2>
   <p class="text-dark-300 mb-6">
     Provide the basic details for your scraping job
   </p>
   <div class="space-y-6">
-    <!-- Job Name Input -->
+    <!-- JOB NAME INPUT -->
     <div>
-      <label for="job-name" class="block text-sm font-medium text-white mb-1"
-        >Job Name <span class="text-danger-500">*</span></label
-      >
+      <label for="job-name" class="block text-sm font-medium text-white mb-1">
+        Job Name <span class="text-danger-500">*</span>
+      </label>
       <input
         id="job-name"
         type="text"
         bind:value={jobState.formData.data.name}
-        class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 {errors.jobName
-          ? 'border-danger-500'
-          : ''}"
-        placeholder="My Scraping Job"
+        class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+        placeholder="my scraping job"
       />
-      {#if errors.jobName}
-        <p class="mt-1 text-sm text-danger-500">{errors.jobName}</p>
-      {/if}
     </div>
-    <!-- Base URL Input -->
+    
+    <!-- BASE URL INPUT -->
     <div>
-      <label for="base-url" class="block text-sm font-medium text-white mb-1"
-        >Base URL <span class="text-danger-500">*</span></label
-      >
+      <label for="base-url" class="block text-sm font-medium text-white mb-1">
+        Base URL <span class="text-danger-500">*</span>
+      </label>
       <input
         id="base-url"
         type="url"
         bind:value={jobState.formData.data.baseUrl}
-        class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 {errors.baseUrl
-          ? 'border-danger-500'
-          : ''}"
+        class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
         placeholder="https://example.com"
       />
-      {#if errors.baseUrl}
-        <p class="mt-1 text-sm text-danger-500">{errors.baseUrl}</p>
-      {:else}
-        <p class="mt-1 text-sm text-dark-400">
-          This is the starting URL for your scraping job
-        </p>
-      {/if}
+      <p class="mt-1 text-sm text-dark-400">
+        This is the starting URL for your scraping job
+      </p>
     </div>
-    <!-- Description Textarea -->
+    
+    <!-- DESCRIPTION TEXTAREA -->
     <div>
-      <label for="description" class="block text-sm font-medium text-white mb-1"
-        >Description</label
-      >
+      <label for="description" class="block text-sm font-medium text-white mb-1">
+        Description
+      </label>
       <textarea
         id="description"
         bind:value={jobState.formData.data.description}
-        class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 {errors.description
-          ? 'border-danger-500'
-          : ''}"
+        class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
         rows="3"
-        placeholder="Describe what this job does and what assets you want to collect"
+        placeholder="describe what this job does and what assets you want to collect"
       ></textarea>
-      {#if errors.description}
-        <p class="mt-1 text-sm text-danger-500">{errors.description}</p>
-      {:else}
-        <p class="mt-1 text-sm text-dark-400">
-          {jobState.formData.data.description.length}/500 characters
-        </p>
-      {/if}
+      <p class="mt-1 text-sm text-dark-400">
+        {jobState.formData.data.description?.length || 0}/500 characters
+      </p>
     </div>
-    <!-- Tags Input -->
+    
+    <!-- TAGS INPUT -->
     <div>
-      <label for="tags" class="block text-sm font-medium text-white mb-1"
-        >Tags</label
-      >
+      <label for="tags" class="block text-sm font-medium text-white mb-1">
+        Tags
+      </label>
       <div class="flex">
         <input
           id="tags"

@@ -110,7 +110,7 @@
             return;
         }
         const link = document.createElement("a");
-        link.href = `/assets/${assetState.selectedAsset.localPath}`;
+        link.href = `/api/assets/${assetState.selectedAsset.localPath}`;
         link.download = assetState.selectedAsset.title || "download";
         link.click();
     }
@@ -177,23 +177,24 @@
                     <ChevronLeft class="h-6 w-6" />
                 </button>
             {/if}
-            <!-- Content area -->
+            
+            <!-- CONTENT AREA -->
             <div class="flex-1 flex items-center justify-center p-4">
                 {#if assetState.selectedAsset.type === "image" && assetState.selectedAsset.localPath}
                     <img
-                        src={`/assets/${assetState.selectedAsset.localPath}`}
-                        alt={assetState.selectedAsset.title || "Image"}
+                        src={`/api/assets/${assetState.selectedAsset.localPath}`}
+                        alt={assetState.selectedAsset.title || "IMAGE"}
                         class="max-h-full max-w-full object-contain"
                     />
                 {:else if assetState.selectedAsset.type === "video" && assetState.selectedAsset.localPath}
                     <video
-                        src={`/assets/${assetState.selectedAsset.localPath}`}
+                        src={`/api/assets/${assetState.selectedAsset.localPath}`}
                         controls
                         autoplay
                         class="max-h-full max-w-full"
                     >
                         <track kind="captions" />
-                        Your browser does not support the video tag.
+                        Your browser does not support the "Video" tag.
                     </video>
                 {:else if assetState.selectedAsset.type === "audio" && assetState.selectedAsset.localPath}
                     <div class="bg-base-800 p-6 rounded-lg w-full max-w-2xl">
@@ -208,12 +209,12 @@
                             {assetState.selectedAsset.title || "Audio File"}
                         </h3>
                         <audio
-                            src={`/assets/${assetState.selectedAsset.localPath}`}
+                            src={`/api/assets/${assetState.selectedAsset.localPath}`}
                             controls
                             class="w-full"
                             autoplay
                         >
-                            Your browser does not support the audio element.
+                            Your browser does not support the "Audio" element.
                         </audio>
                     </div>
                 {:else}
@@ -240,7 +241,8 @@
                     </div>
                 {/if}
             </div>
-            <!-- Next button -->
+            
+            <!-- NEXT BUTTON -->
             {#if currentIndex < assetsLength - 1}
                 <button
                     class="absolute right-4 top-1/2 transform -translate-y-1/2 z-10 p-2 rounded-full bg-base-800 bg-opacity-60 hover:bg-opacity-80 text-white focus:outline-none"
@@ -250,7 +252,8 @@
                     <ChevronRight class="h-6 w-6" />
                 </button>
             {/if}
-            <!-- Metadata panel -->
+            
+            <!-- METADATA PANEL -->
             <div
                 class="w-80 bg-base-800 border-l border-dark-700 p-4 overflow-y-auto"
             >
@@ -262,6 +265,7 @@
                         </h4>
                         <p>{assetState.selectedAsset.title || "Untitled"}</p>
                     </div>
+                    
                     {#if assetState.selectedAsset.description}
                         <div>
                             <h4 class="text-sm font-medium text-dark-300 mb-1">
@@ -270,18 +274,21 @@
                             <p class="text-sm">{assetState.selectedAsset.description}</p>
                         </div>
                     {/if}
+                    
                     <div>
                         <h4 class="text-sm font-medium text-dark-300 mb-1">
                             Type
                         </h4>
                         <p>{assetState.selectedAsset.type}</p>
                     </div>
+                    
                     <div>
                         <h4 class="text-sm font-medium text-dark-300 mb-1">
                             Size
                         </h4>
                         <p>{formatFileSize(assetState.selectedAsset.size)}</p>
                     </div>
+                    
                     {#if assetState.selectedAsset.date}
                         <div>
                             <h4 class="text-sm font-medium text-dark-300 mb-1">
@@ -290,10 +297,11 @@
                             <p>{formatDate(assetState.selectedAsset.date)}</p>
                         </div>
                     {/if}
+                    
                     {#if assetState.selectedAsset.url}
                         <div>
                             <h4 class="text-sm font-medium text-dark-300 mb-1">
-                                Source URL
+                                Source Url
                             </h4>
                             <p class="text-sm break-all">
                                 <a
@@ -307,6 +315,7 @@
                             </p>
                         </div>
                     {/if}
+                    
                     {#if assetState.selectedAsset.metadata && Object.keys(assetState.selectedAsset.metadata).length > 0}
                         <div>
                             <h4 class="text-sm font-medium text-dark-300 mb-2">

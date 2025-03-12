@@ -3,7 +3,6 @@
   import { state as jobState, setJobWizardStep, createNewJob, resetJobWizard, updateJobWizardStep } from '$lib/stores/jobStore.svelte';
   import { addToast } from '$lib/stores/uiStore.svelte';
   
-  // IMPORT ALL WIZARD STEP COMPONENTS
   import BasicInfoStep from './wizard-steps/BasicInfoStep.svelte';
   import ContentSelectionStep from './wizard-steps/ContentSelectionStep.svelte';
   import FilteringStep from './wizard-steps/FilteringStep.svelte';
@@ -11,7 +10,6 @@
   import ScheduleStep from './wizard-steps/ScheduleStep.svelte';
   import SummaryStep from './wizard-steps/SummaryStep.svelte';
   
-  // PROPS
   let {
     isTemplate = false,
     initialData = null,
@@ -20,7 +18,7 @@
     onCancel = () => {}
   } = $props();
   
-  // STEPS CONFIGURATION
+  // STEPS
   const steps = [
     { id: 1, name: 'Basic Info', component: BasicInfoStep },
     { id: 2, name: 'Content Selection', component: ContentSelectionStep },
@@ -30,36 +28,22 @@
     { id: 6, name: 'Summary', component: SummaryStep }
   ];
   
-  // GET CURRENT STATE FROM STORE
   let currentStep = $derived(jobState.formData.step);
   let formData = $derived(jobState.formData.data);
-  
-  // VALIDATION STATE
+
   let stepValid = $state(true);
   let submitting = $state(false);
   
-  // INITIALIZE WIZARD WITH PROVIDED DATA
   onMount(() => {
     if (initialData) {
-      // POPULATE WIZARD WITH INITIALDATA
       updateJobWizardStep(1, initialData);
     }
   });
   
-  // ENSURE BASE URL IS PASSED TO VISUAL SELECTOR
-  $effect(() => {
-    // WHEN MOVING TO CONTENT SELECTION TAB, MAKE SURE BASE URL IS AVAILABLE
-    if (currentStep === 2 && formData.baseUrl) {
-      // THE VISUAL SELECTOR WILL USE THIS URL
-      console.log("Base URL available for content selection:", formData.baseUrl);
-    }
-  });
-  
-  // NAVIGATION FUNCTIONS
+  // NAVIGATION
   function goToStep(step) {
     if (step < 1 || step > steps.length) return;
     
-    // ONLY ALLOW NAVIGATION TO ALREADY VISITED OR NEXT STEP
     if (step <= currentStep + 1) {
       setJobWizardStep(step);
     }
@@ -77,7 +61,6 @@
     }
   }
   
-  // SUBMIT HANDLER
   async function handleSubmit() {
     if (submitting) return;
     
@@ -87,13 +70,14 @@
       const result = await createNewJob(formData);
       
       // SHOW SUCCESS NOTIFICATION
-      addToast(isEditing ? 'JOB UPDATED SUCCESSFULLY' : 'JOB CREATED SUCCESSFULLY', 'success');
+      addToast(isEditing ? 'Job Updated' : 'Job Created', 'success');
       
       // RESET WIZARD
       resetJobWizard();
       
       // CALL SUCCESS CALLBACK
       onSuccess(result);
+      onCancel();
     } catch (error) {
       addToast(`FAILED TO ${isEditing ? 'UPDATE' : 'CREATE'} JOB: ${error.message}`, 'error');
     } finally {
@@ -142,7 +126,7 @@
   
   <!-- WIZARD CONTENT -->
   <div class="card-body">
-    <div class="max-w-3xl mx-auto">
+    <div class="h-full w-full">
       <!-- STEP CONTENT -->
       <div class="py-4">
         {#if currentStep === 1}

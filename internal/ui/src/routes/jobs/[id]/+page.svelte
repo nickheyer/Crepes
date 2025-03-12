@@ -77,7 +77,7 @@
             // FIND JOB BY ID
             job = jobState.jobs.find(j => j.id === jobId);
             if (!job) {
-                addToast("JOB NOT FOUND", "error");
+                addToast("Job not found", "error");
                 return;
             }
             
@@ -98,7 +98,7 @@
             await loadAssets({ jobId });
         } catch (error) {
             console.error("ERROR LOADING JOB DATA:", error);
-            addToast(`FAILED TO LOAD JOB DATA: ${error.message}`, "error");
+            addToast(`Failed to load job data: ${error.message}`, "error");
         } finally {
             loading = false;
             assetsLoading = false;
@@ -119,32 +119,32 @@
     async function handleStartJob() {
         try {
             await startJobById(jobId);
-            addToast("JOB STARTED SUCCESSFULLY", "success");
+            addToast("Job Started", "success");
             await loadJobData();
             startRefreshInterval();
         } catch (error) {
-            addToast(`FAILED TO START JOB: ${error.message}`, "error");
+            addToast(`Failed to start job: ${error.message}`, "error");
         }
     }
     
     async function handleStopJob() {
         try {
             await stopJobById(jobId);
-            addToast("JOB STOPPED SUCCESSFULLY", "success");
+            addToast("Job Stopped", "success");
             await loadJobData();
             if (refreshInterval) clearInterval(refreshInterval);
         } catch (error) {
-            addToast(`FAILED TO STOP JOB: ${error.message}`, "error");
+            addToast(`Failed to stop job: ${error.message}`, "error");
         }
     }
     
     async function handleDeleteJob() {
         try {
             await removeJob(jobId);
-            addToast("JOB DELETED SUCCESSFULLY", "success");
+            addToast("Job Deleted", "success");
             window.location.href = "/jobs";
         } catch (error) {
-            addToast(`FAILED TO DELETE JOB: ${error.message}`, "error");
+            addToast(`Failed to delete job: ${error.message}`, "error");
             confirmDelete = false;
         }
     }
