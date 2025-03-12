@@ -318,7 +318,7 @@ func RegisterJobHandlers(router *mux.Router, db *gorm.DB, engine *scraper.Engine
 			jobDuration = 0
 		}
 
-		stats := map[string]interface{}{
+		stats := map[string]any{
 			"totalAssets": totalAssets,
 			"assetTypes":  assetTypes,
 			"progress":    jobProgress,
