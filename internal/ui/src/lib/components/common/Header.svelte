@@ -14,7 +14,6 @@
         dashboard: "Dashboard",
         jobs: "Jobs",
         assets: "Assets Gallery",
-        templates: "Templates",
         settings: "Settings",
         help: "Help & Documentation",
     };

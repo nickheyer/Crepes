@@ -156,35 +156,6 @@ export function validateAssetFilters(filters) {
 }
 
 /**
- * Validate template data
- * @param {Object} templateData - Template data to validate
- * @returns {Object} Validation result with success flag and error messages
- */
-export function validateTemplateData(templateData) {
-    const errors = {};
-
-    if (!templateData.name) {
-        errors.name = 'Template name is required';
-    }
-
-    // Validate the job configuration inside the template
-    if (templateData.jobConfig) {
-        const jobValidation = validateJobConfig(templateData.jobConfig);
-
-        if (!jobValidation.isValid) {
-            errors.jobConfig = jobValidation.errors;
-        }
-    } else {
-        errors.jobConfig = 'Job configuration is required';
-    }
-
-    return {
-        isValid: Object.keys(errors).length === 0,
-        errors
-    };
-}
-
-/**
  * Validate regex pattern
  * @param {string} pattern - Regex pattern string to validate
  * @returns {boolean} Whether the pattern is a valid regex

@@ -149,16 +149,6 @@
         }
     }
     
-    function createTemplate() {
-        // CLONE JOB TO TEMPLATE AND REDIRECT TO TEMPLATE CREATION
-        if (job) {
-            // Reset the wizard before setting new data
-            resetJobWizard();
-            updateJobWizardStep(1, job);
-            window.location.href = "/templates?fromJob=" + jobId;
-        }
-    }
-    
     // OPEN EDIT JOB MODAL
     function openEditJobModal() {
         if (job) {
@@ -270,11 +260,6 @@
             <Button variant="primary" onclick={openEditJobModal}>
                 <Edit class="h-5 w-5 mr-1" />
                 Edit Job
-            </Button>
-
-            <Button variant="outline" onclick={createTemplate}>
-                <CopyPlus class="h-5 w-5 mr-1" />
-                Create Template
             </Button>
 
             <div class="flex items-center space-x-2"></div>

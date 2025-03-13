@@ -134,47 +134,6 @@ export async function regenerateThumbnail(assetId) {
   });
 }
 
-// TEMPLATE ENDPOINTS
-// FETCH ALL TEMPLATES
-export async function fetchTemplates() {
-  return apiFetch('/templates');
-}
-
-// FETCH TEMPLATE EXAMPLES
-export async function fetchTemplateExamples() {
-  return apiFetch('/templates/examples');
-}
-
-// CREATE A TEMPLATE
-export async function createTemplate(templateData) {
-  return apiFetch('/templates', {
-    method: 'POST',
-    body: JSON.stringify(templateData),
-  });
-}
-
-// UPDATE A TEMPLATE
-export async function updateTemplate(templateId, templateData) {
-  return apiFetch(`/templates/${templateId}`, {
-    method: 'PUT',
-    body: JSON.stringify(templateData),
-  });
-}
-
-// DELETE A TEMPLATE
-export async function deleteTemplate(templateId) {
-  return apiFetch(`/templates/${templateId}`, {
-    method: 'DELETE',
-  });
-}
-
-// CREATE JOB FROM TEMPLATE
-export async function createJobFromTemplate(templateId) {
-  return apiFetch(`/templates/${templateId}/create-job`, {
-    method: 'POST',
-  });
-}
-
 // SETTINGS ENDPOINTS
 // GET ALL SETTINGS
 export async function fetchSettings() {

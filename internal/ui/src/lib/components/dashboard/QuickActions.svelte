@@ -18,10 +18,6 @@
         window.location.href = "/assets";
     }
     
-    function goToTemplates() {
-        window.location.href = "/templates";
-    }
-    
     function refreshJobs() {
         addToast("Refreshing jobs...", "info");
         // This would typically trigger a jobs refresh from the API
@@ -50,14 +46,6 @@
     >
         <Image size={20} strokeWidth={2.5} />
         <span class="font-medium">View Asset Gallery</span>
-    </button>
-    
-    <button 
-        class="btn btn-accent w-full flex justify-start gap-3 px-4 shadow-md hover:shadow-lg" 
-        onclick={goToTemplates}
-    >
-        <Copy size={20} strokeWidth={2.5} />
-        <span class="font-medium">Job Templates</span>
     </button>
     
     <button 

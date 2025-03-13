@@ -11,7 +11,6 @@
   import SummaryStep from './wizard-steps/SummaryStep.svelte';
   
   let {
-    isTemplate = false,
     initialData = null,
     isEditing = false,
     onSuccess = () => {},

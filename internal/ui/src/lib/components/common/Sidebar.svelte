@@ -17,7 +17,6 @@
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, href: "/" },
     { id: "jobs", label: "Jobs", icon: BarChart, href: "/jobs" },
     { id: "assets", label: "Assets Gallery", icon: Image, href: "/assets" },
-    { id: "templates", label: "Templates", icon: Copy, href: "/templates" },
     { id: "settings", label: "Settings", icon: Settings, href: "/settings" },
     { id: "help", label: "Help", icon: HelpCircle, href: "/help" },
   ];

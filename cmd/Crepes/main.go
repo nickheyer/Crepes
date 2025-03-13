@@ -61,7 +61,7 @@ func main() {
 	defer sqlDB.Close()
 
 	// AUTO MIGRATE SCHEMAS
-	if err := db.AutoMigrate(&models.Job{}, &models.Asset{}, &models.Template{}, &models.Setting{}); err != nil {
+	if err := db.AutoMigrate(&models.Job{}, &models.Asset{}, &models.Setting{}); err != nil {
 		log.Fatalf("Failed to migrate database schemas: %v", err)
 	}
 
@@ -87,7 +87,6 @@ func main() {
 	apiRouter := router.PathPrefix("/api").Subrouter()
 	handlers.RegisterJobHandlers(apiRouter, db, scraperEngine, jobScheduler)
 	handlers.RegisterAssetHandlers(apiRouter, db, cfg)
-	handlers.RegisterTemplateHandlers(apiRouter, db)
 	handlers.RegisterSettingsHandlers(apiRouter, db, cfg)
 	handlers.RegisterStorageHandlers(apiRouter, cfg)
 	handlers.RegisterProxyHandler(apiRouter)

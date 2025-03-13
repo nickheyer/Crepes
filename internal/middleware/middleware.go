@@ -13,7 +13,7 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 		// CALL THE NEXT HANDLER
 		next.ServeHTTP(w, r)
 		// LOG REQUEST DETAILS
-		log.Printf("%s %s %s", r.Method, r.RequestURI, time.Since(start))
+		log.Printf("%s %s %s\n", r.Method, r.RequestURI, time.Since(start))
 	})
 }
 
