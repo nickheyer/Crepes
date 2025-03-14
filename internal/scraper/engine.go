@@ -5,49 +5,57 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"image"
-	"io"
 	"log"
-	"math/rand"
-	"net/http"
-	"net/url"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	stealth "github.com/jonfriesen/playwright-go-stealth"
+	"github.com/google/uuid"
 	"github.com/nickheyer/Crepes/internal/config"
 	"github.com/nickheyer/Crepes/internal/models"
-	"github.com/nickheyer/Crepes/internal/utils"
 	"github.com/playwright-community/playwright-go"
 	"gorm.io/gorm"
 )
 
-// ENGINE ERRORS
+// ERROR DEFINITIONS
 var (
 	ErrPlaywrightNotInitialized = errors.New("PLAYWRIGHT NOT INITIALIZED")
 	ErrJobAlreadyRunning        = errors.New("JOB IS ALREADY RUNNING")
 	ErrJobNotFound              = errors.New("JOB NOT FOUND")
 	ErrBrowserCreation          = errors.New("FAILED TO CREATE BROWSER")
 	ErrPageCreation             = errors.New("FAILED TO CREATE PAGE")
+	ErrTaskNotFound             = errors.New("TASK TYPE NOT FOUND")
+	ErrResourceNotFound         = errors.New("RESOURCE NOT FOUND")
+	ErrInvalidInput             = errors.New("INVALID TASK INPUT")
 )
 
 // ENGINE CORE STRUCT
 type Engine struct {
-	db            *gorm.DB
-	cfg           *config.Config
-	runningJobs   map[string]context.CancelFunc
-	jobProgress   map[string]int
-	jobStartTimes map[string]time.Time
-	jobDurations  map[string]time.Duration
-	mu            sync.Mutex
-	playwright    *playwright.Playwright
-	browserPool   chan browserInstance
-	initialized   bool
-	initMu        sync.Mutex
+	db              *gorm.DB
+	cfg             *config.Config
+	runningJobs     map[string]context.CancelFunc
+	jobProgress     map[string]JobProgress
+	jobStartTimes   map[string]time.Time
+	jobDurations    map[string]time.Duration
+	mu              sync.Mutex
+	playwright      *playwright.Playwright
+	browserPool     chan browserInstance
+	initialized     bool
+	initMu          sync.Mutex
+	taskRegistry    *TaskRegistry
+	resourceManager *ResourceManager
+}
+
+// JOB PROGRESS TRACKING
+type JobProgress struct {
+	TotalTasks     int                 `json:"totalTasks"`
+	CompletedTasks int                 `json:"completedTasks"`
+	CurrentStage   string              `json:"currentStage"`
+	StageProgress  map[string]int      `json:"stageProgress"`
+	Status         string              `json:"status"`
+	Errors         []string            `json:"errors"`
+	Assets         int                 `json:"assets"`
+	TaskResults    map[string]TaskData `json:"taskResults"` // Store task outputs for use as inputs to other tasks
 }
 
 // BROWSER INSTANCE
@@ -55,46 +63,165 @@ type browserInstance struct {
 	browser *playwright.Browser
 }
 
-// JOB INFO STRUCT
-type jobInfo struct {
-	ctx             context.Context
-	cancel          context.CancelFunc
-	browser         *playwright.Browser
-	page            *playwright.Page
-	job             *models.Job
-	startTime       time.Time
-	visitedURLs     map[string]bool
-	foundAssets     map[string]bool
-	paginationLinks []string
-	progress        int
-	wg              *sync.WaitGroup
-	urlsMu          sync.Mutex
-	assetsMu        sync.Mutex
-	paginationMu    sync.Mutex
+// RESOURCE MANAGER HANDLES JOB RESOURCES
+type ResourceManager struct {
+	mu        sync.Mutex
+	resources map[string]map[string]interface{} // Job ID -> Resource ID -> Resource
 }
 
-// SCRAPE TASK
-type scrapeTask struct {
-	url   string
-	depth int
+// NEW RESOURCE MANAGER
+func NewResourceManager() *ResourceManager {
+	return &ResourceManager{
+		resources: make(map[string]map[string]interface{}),
+	}
+}
+
+// CREATE A RESOURCE
+func (rm *ResourceManager) CreateResource(jobID, resourceID, resourceType string, value interface{}) {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
+	// INITIALIZE JOB RESOURCES MAP IF NOT EXISTS
+	if _, ok := rm.resources[jobID]; !ok {
+		rm.resources[jobID] = make(map[string]interface{})
+	}
+
+	// STORE THE RESOURCE
+	rm.resources[jobID][resourceID] = value
+}
+
+// GET A RESOURCE
+func (rm *ResourceManager) GetResource(jobID, resourceID string) (interface{}, bool) {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
+	// CHECK IF JOB RESOURCES MAP EXISTS
+	jobResources, ok := rm.resources[jobID]
+	if !ok {
+		return nil, false
+	}
+
+	// GET THE RESOURCE
+	resource, ok := jobResources[resourceID]
+	return resource, ok
+}
+
+// DELETE A RESOURCE
+func (rm *ResourceManager) DeleteResource(jobID, resourceID string) {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
+	// CHECK IF JOB RESOURCES MAP EXISTS
+	jobResources, ok := rm.resources[jobID]
+	if !ok {
+		return
+	}
+
+	// DELETE THE RESOURCE
+	delete(jobResources, resourceID)
+}
+
+// DELETE ALL JOB RESOURCES
+func (rm *ResourceManager) DeleteJobResources(jobID string) {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
+	// DELETE ALL RESOURCES FOR JOB
+	delete(rm.resources, jobID)
+}
+
+// TASK DATA FOR INPUT/OUTPUT
+type TaskData struct {
+	Type  string      `json:"type"` // "string", "number", "boolean", "object", "array", "null"
+	Value interface{} `json:"value"`
+}
+
+// TASK CONTEXT PASSED TO TASK IMPLEMENTATION
+type TaskContext struct {
+	JobID           string
+	ResourceManager *ResourceManager
+	TaskResults     map[string]TaskData
+	Engine          *Engine
+	Context         context.Context
+	Logger          *log.Logger
+}
+
+// TASK IMPLEMENTATION INTERFACE
+type TaskImplementation interface {
+	Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error)
+	ValidateConfig(config map[string]interface{}) error
+	GetInputSchema() map[string]string
+	GetOutputSchema() string
+}
+
+// TASK REGISTRY STORES AVAILABLE TASK IMPLEMENTATIONS
+type TaskRegistry struct {
+	mu              sync.RWMutex
+	implementations map[string]TaskImplementation
+}
+
+// NEW TASK REGISTRY
+func NewTaskRegistry() *TaskRegistry {
+	return &TaskRegistry{
+		implementations: make(map[string]TaskImplementation),
+	}
+}
+
+// REGISTER A TASK IMPLEMENTATION
+func (tr *TaskRegistry) RegisterTask(taskType string, implementation TaskImplementation) {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	tr.implementations[taskType] = implementation
+}
+
+// GET A TASK IMPLEMENTATION
+func (tr *TaskRegistry) GetTask(taskType string) (TaskImplementation, error) {
+	tr.mu.RLock()
+	defer tr.mu.RUnlock()
+	implementation, ok := tr.implementations[taskType]
+	if !ok {
+		return nil, ErrTaskNotFound
+	}
+	return implementation, nil
+}
+
+// LIST AVAILABLE TASK TYPES
+func (tr *TaskRegistry) ListTaskTypes() []string {
+	tr.mu.RLock()
+	defer tr.mu.RUnlock()
+	types := make([]string, 0, len(tr.implementations))
+	for taskType := range tr.implementations {
+		types = append(types, taskType)
+	}
+	return types
 }
 
 // NEW ENGINE FACTORY
 func NewEngine(db *gorm.DB, cfg *config.Config) *Engine {
 	log.Printf("CREATING NEW SCRAPER ENGINE")
+
+	// CREATE RESOURCE MANAGER
+	resourceManager := NewResourceManager()
+
+	// CREATE TASK REGISTRY
+	taskRegistry := NewTaskRegistry()
+
 	engine := &Engine{
-		db:            db,
-		cfg:           cfg,
-		runningJobs:   make(map[string]context.CancelFunc),
-		jobProgress:   make(map[string]int),
-		jobStartTimes: make(map[string]time.Time),
-		jobDurations:  make(map[string]time.Duration),
-		mu:            sync.Mutex{},
-		browserPool:   make(chan browserInstance, cfg.MaxConcurrent),
-		initialized:   false,
-		initMu:        sync.Mutex{},
+		db:              db,
+		cfg:             cfg,
+		runningJobs:     make(map[string]context.CancelFunc),
+		jobProgress:     make(map[string]JobProgress),
+		jobStartTimes:   make(map[string]time.Time),
+		jobDurations:    make(map[string]time.Duration),
+		mu:              sync.Mutex{},
+		browserPool:     make(chan browserInstance, cfg.MaxConcurrent),
+		initialized:     false,
+		initMu:          sync.Mutex{},
+		taskRegistry:    taskRegistry,
+		resourceManager: resourceManager,
 	}
 
+	// INIT PLAYWRIGHT
 	log.Printf("INITIALIZING PLAYWRIGHT FOR ENGINE")
 	err := engine.initPlaywright()
 	if err != nil {
@@ -102,7 +229,50 @@ func NewEngine(db *gorm.DB, cfg *config.Config) *Engine {
 		engine.initialized = false
 	}
 
+	// REGISTER TASK IMPLEMENTATIONS
+	engine.registerTasks()
+
 	return engine
+}
+
+// REGISTER ALL AVAILABLE TASK IMPLEMENTATIONS
+func (e *Engine) registerTasks() {
+	// BROWSER TASKS
+	e.taskRegistry.RegisterTask("navigate", &NavigateTask{})
+	e.taskRegistry.RegisterTask("back", &BackTask{})
+	e.taskRegistry.RegisterTask("forward", &ForwardTask{})
+	e.taskRegistry.RegisterTask("reload", &ReloadTask{})
+	e.taskRegistry.RegisterTask("waitForLoad", &WaitForLoadTask{})
+	e.taskRegistry.RegisterTask("takeScreenshot", &TakeScreenshotTask{})
+	e.taskRegistry.RegisterTask("executeScript", &ExecuteScriptTask{})
+
+	// INTERACTION TASKS
+	e.taskRegistry.RegisterTask("click", &ClickTask{})
+	e.taskRegistry.RegisterTask("type", &TypeTask{})
+	e.taskRegistry.RegisterTask("select", &SelectTask{})
+	e.taskRegistry.RegisterTask("hover", &HoverTask{})
+	e.taskRegistry.RegisterTask("scroll", &ScrollTask{})
+
+	// EXTRACTION TASKS
+	e.taskRegistry.RegisterTask("extractText", &ExtractTextTask{})
+	e.taskRegistry.RegisterTask("extractAttribute", &ExtractAttributeTask{})
+	e.taskRegistry.RegisterTask("extractLinks", &ExtractLinksTask{})
+	e.taskRegistry.RegisterTask("extractImages", &ExtractImagesTask{})
+
+	// ASSET TASKS
+	e.taskRegistry.RegisterTask("downloadAsset", &DownloadAssetTask{})
+	e.taskRegistry.RegisterTask("saveAsset", &SaveAssetTask{})
+
+	// FLOW CONTROL TASKS
+	e.taskRegistry.RegisterTask("conditional", &ConditionalTask{})
+	e.taskRegistry.RegisterTask("loop", &LoopTask{})
+	e.taskRegistry.RegisterTask("wait", &WaitTask{})
+
+	// RESOURCE TASKS
+	e.taskRegistry.RegisterTask("createBrowser", &CreateBrowserTask{})
+	e.taskRegistry.RegisterTask("createPage", &CreatePageTask{})
+	e.taskRegistry.RegisterTask("disposeBrowser", &DisposeBrowserTask{})
+	e.taskRegistry.RegisterTask("disposePage", &DisposePageTask{})
 }
 
 // INIT PLAYWRIGHT
@@ -134,7 +304,6 @@ func (e *Engine) initPlaywright() error {
 
 	e.playwright = pw
 	e.initialized = true
-
 	log.Printf("PLAYWRIGHT INITIALIZED WITH %d BROWSERS IN POOL", len(e.browserPool))
 	return nil
 }
@@ -145,7 +314,6 @@ func (e *Engine) ensureInitialized() error {
 	if !e.initialized {
 		e.initMu.Lock()
 		defer e.initMu.Unlock()
-
 		if !e.initialized {
 			log.Printf("INITIALIZING PLAYWRIGHT")
 			return e.initPlaywright()
@@ -185,48 +353,14 @@ func (e *Engine) launchBrowser(headless bool) (*playwright.Browser, error) {
 			"--allow-running-insecure-content",
 		},
 	})
+
 	if err != nil {
 		log.Printf("BROWSER LAUNCH FAILED: %v", err)
 		return nil, fmt.Errorf("COULD NOT LAUNCH BROWSER: %v", err)
 	}
+
 	log.Printf("BROWSER LAUNCHED SUCCESSFULLY")
-
 	return &browser, nil
-}
-
-// GET BROWSER FROM POOL OR CREATE NEW
-func (e *Engine) getBrowser(job *models.Job) (*playwright.Browser, error) {
-	log.Printf("GETTING BROWSER FOR JOB %s", job.ID)
-	// TRY TO GET FROM POOL FIRST
-	select {
-	case instance := <-e.browserPool:
-		log.Printf("REUSING BROWSER FROM POOL")
-		return instance.browser, nil
-	default:
-		// POOL EMPTY, CREATE NEW BROWSER
-		log.Printf("BROWSER POOL EMPTY, CREATING NEW BROWSER")
-		headless, _ := job.Processing["headless"].(bool)
-		return e.launchBrowser(headless)
-	}
-}
-
-// RETURN BROWSER TO POOL
-func (e *Engine) returnBrowser(browser *playwright.Browser) {
-	if browser == nil {
-		log.Printf("ATTEMPTED TO RETURN NIL BROWSER")
-		return
-	}
-
-	log.Printf("RETURNING BROWSER TO POOL")
-	// ONLY RETURN TO POOL IF NOT FULL
-	select {
-	case e.browserPool <- browserInstance{browser: browser}:
-		log.Printf("BROWSER RETURNED TO POOL")
-	default:
-		// POOL FULL, CLOSE BROWSER
-		log.Printf("BROWSER POOL FULL, CLOSING BROWSER")
-		(*browser).Close()
-	}
 }
 
 // RUN JOB
@@ -268,889 +402,780 @@ func (e *Engine) RunJob(jobID string) error {
 	e.mu.Lock()
 	e.runningJobs[jobID] = cancel
 	e.jobStartTimes[jobID] = time.Now()
-	e.jobProgress[jobID] = 0
+
+	// INITIALIZE JOB PROGRESS
+	e.jobProgress[jobID] = JobProgress{
+		TotalTasks:     0, // WILL BE CALCULATED FROM PIPELINE
+		CompletedTasks: 0,
+		CurrentStage:   "",
+		StageProgress:  make(map[string]int),
+		Status:         "running",
+		Errors:         []string{},
+		Assets:         0,
+		TaskResults:    make(map[string]TaskData),
+	}
 	e.mu.Unlock()
+
 	log.Printf("JOB %s REGISTERED AND STARTING", jobID)
 
 	// RUN JOB IN GOROUTINE WITH IMPROVED ERROR HANDLING
-	go e.executeJob(ctx, cancel, jobID, &job)
+	go e.executePipeline(ctx, cancel, jobID, &job)
 
 	return nil
 }
 
-func (e *Engine) executeJob(ctx context.Context, cancel context.CancelFunc, jobID string, job *models.Job) {
+// EXECUTE JOB PIPELINE
+func (e *Engine) executePipeline(ctx context.Context, cancel context.CancelFunc, jobID string, job *models.Job) {
 	defer cancel()
 	defer e.finishJob(jobID)
-	log.Printf("JOB %s GOROUTINE STARTED", jobID)
 
-	// GET BROWSER
-	browser, err := e.getBrowser(job)
-	if err != nil {
-		log.Printf("ERROR GETTING BROWSER FOR JOB %s: %v", jobID, err)
+	log.Printf("JOB %s PIPELINE EXECUTION STARTED", jobID)
+
+	// CREATE LOGGER FOR THIS JOB
+	jobLogger := log.New(log.Writer(), fmt.Sprintf("[JOB %s] ", jobID), log.LstdFlags)
+
+	// GET PIPELINE STAGES
+	var pipeline []models.Stage
+	if err := json.Unmarshal([]byte(job.Pipeline), &pipeline); err != nil {
+		jobLogger.Printf("FAILED TO PARSE PIPELINE: %v", err)
 		e.updateJobStatus(jobID, "error")
+		e.addJobError(jobID, fmt.Sprintf("Failed to parse pipeline: %v", err))
 		return
 	}
-	defer e.returnBrowser(browser)
 
-	// CREATE JOB INFO WITH WAITGROUP FOR TASKS
+	// COUNT TOTAL TASKS FOR PROGRESS TRACKING
+	totalTasks := 0
+	for _, stage := range pipeline {
+		totalTasks += len(stage.Tasks)
+	}
+
+	e.mu.Lock()
+	progress := e.jobProgress[jobID]
+	progress.TotalTasks = totalTasks
+	e.jobProgress[jobID] = progress
+	e.mu.Unlock()
+
+	// EXECUTE EACH STAGE IN SEQUENCE
+	for stageIndex, stage := range pipeline {
+		jobLogger.Printf("STARTING STAGE %d: %s", stageIndex+1, stage.Name)
+
+		e.mu.Lock()
+		progress := e.jobProgress[jobID]
+		progress.CurrentStage = stage.Name
+		e.jobProgress[jobID] = progress
+		e.mu.Unlock()
+
+		// CHECK IF STAGE HAS A CONDITION AND EVALUATE IT
+		if stage.Condition.Type != "" && stage.Condition.Type != "always" {
+			shouldExecute, err := e.evaluateCondition(ctx, jobID, stage.Condition)
+			if err != nil {
+				jobLogger.Printf("FAILED TO EVALUATE STAGE CONDITION: %v", err)
+				e.addJobError(jobID, fmt.Sprintf("Failed to evaluate stage condition: %v", err))
+				continue // SKIP THIS STAGE BUT CONTINUE PIPELINE
+			}
+
+			if !shouldExecute {
+				jobLogger.Printf("SKIPPING STAGE %s DUE TO CONDITION", stage.Name)
+				continue
+			}
+		}
+
+		// EXECUTE TASKS BASED ON PARALLELISM CONFIG
+		switch stage.Parallelism.Mode {
+		case "sequential":
+			err := e.executeSequentialTasks(ctx, jobID, job, stage, jobLogger)
+			if err != nil {
+				jobLogger.Printf("ERROR EXECUTING SEQUENTIAL TASKS: %v", err)
+				if ctx.Err() != nil {
+					// TIMEOUT OR CANCELLED
+					return
+				}
+			}
+
+		case "parallel":
+			err := e.executeParallelTasks(ctx, jobID, job, stage, jobLogger)
+			if err != nil {
+				jobLogger.Printf("ERROR EXECUTING PARALLEL TASKS: %v", err)
+				if ctx.Err() != nil {
+					// TIMEOUT OR CANCELLED
+					return
+				}
+			}
+
+		case "worker-per-item":
+			// SPECIAL PARALLELISM MODE WHERE EACH ITEM IN THE INPUT GETS ITS OWN WORKER
+			err := e.executeWorkerPerItemTasks(ctx, jobID, job, stage, jobLogger)
+			if err != nil {
+				jobLogger.Printf("ERROR EXECUTING WORKER-PER-ITEM TASKS: %v", err)
+				if ctx.Err() != nil {
+					// TIMEOUT OR CANCELLED
+					return
+				}
+			}
+
+		default:
+			// DEFAULT TO SEQUENTIAL
+			err := e.executeSequentialTasks(ctx, jobID, job, stage, jobLogger)
+			if err != nil {
+				jobLogger.Printf("ERROR EXECUTING DEFAULT SEQUENTIAL TASKS: %v", err)
+				if ctx.Err() != nil {
+					// TIMEOUT OR CANCELLED
+					return
+				}
+			}
+		}
+
+		// CHECK CONTEXT BEFORE CONTINUING TO NEXT STAGE
+		if ctx.Err() != nil {
+			jobLogger.Printf("CONTEXT DONE, STOPPING PIPELINE: %v", ctx.Err())
+			return
+		}
+	}
+
+	// PIPELINE COMPLETED SUCCESSFULLY
+	jobLogger.Printf("PIPELINE EXECUTION COMPLETED SUCCESSFULLY")
+	e.updateJobStatus(jobID, "completed")
+}
+
+// EXECUTE TASKS SEQUENTIALLY
+func (e *Engine) executeSequentialTasks(ctx context.Context, jobID string, job *models.Job, stage models.Stage, logger *log.Logger) error {
+	logger.Printf("EXECUTING %d TASKS SEQUENTIALLY", len(stage.Tasks))
+
+	for taskIndex, task := range stage.Tasks {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			// EXECUTE TASK
+			logger.Printf("EXECUTING TASK %d: %s (%s)", taskIndex+1, task.Name, task.Type)
+
+			// CHECK TASK CONDITION
+			if task.Condition.Type != "" && task.Condition.Type != "always" {
+				shouldExecute, err := e.evaluateCondition(ctx, jobID, task.Condition)
+				if err != nil {
+					logger.Printf("FAILED TO EVALUATE TASK CONDITION: %v", err)
+					e.addJobError(jobID, fmt.Sprintf("Failed to evaluate task condition: %v", err))
+					continue // SKIP THIS TASK BUT CONTINUE
+				}
+
+				if !shouldExecute {
+					logger.Printf("SKIPPING TASK %s DUE TO CONDITION", task.Name)
+					continue
+				}
+			}
+
+			// PREPARE TASK INPUTS
+			taskInputs, err := e.prepareTaskInputs(jobID, task)
+			if err != nil {
+				logger.Printf("FAILED TO PREPARE TASK INPUTS: %v", err)
+				e.addJobError(jobID, fmt.Sprintf("Failed to prepare task inputs: %v", err))
+				continue
+			}
+
+			// EXECUTE THE TASK
+			result, err := e.executeTask(ctx, jobID, task, taskInputs, logger)
+			if err != nil {
+				logger.Printf("TASK EXECUTION FAILED: %v", err)
+				e.addJobError(jobID, fmt.Sprintf("Task execution failed: %v", err))
+
+				// IF TASK HAS RETRY CONFIG, ATTEMPT RETRIES
+				if task.RetryConfig.MaxRetries > 0 {
+					retryResult, retryErr := e.retryTask(ctx, jobID, task, taskInputs, logger)
+					if retryErr == nil {
+						// RETRY SUCCEEDED
+						result = retryResult
+						err = nil
+					}
+				}
+
+				if err != nil && ctx.Err() != nil {
+					// TIMEOUT OR CANCELLED
+					return ctx.Err()
+				}
+			}
+
+			// STORE TASK RESULT
+			if err == nil {
+				e.mu.Lock()
+				progress := e.jobProgress[jobID]
+				progress.TaskResults[task.ID] = result
+				progress.CompletedTasks++
+				e.jobProgress[jobID] = progress
+				e.mu.Unlock()
+
+				logger.Printf("TASK %s COMPLETED SUCCESSFULLY", task.Name)
+			}
+		}
+	}
+
+	return nil
+}
+
+// EXECUTE TASKS IN PARALLEL
+func (e *Engine) executeParallelTasks(ctx context.Context, jobID string, job *models.Job, stage models.Stage, logger *log.Logger) error {
+	// DETERMINE MAX WORKERS
+	maxWorkers := stage.Parallelism.MaxWorkers
+	if maxWorkers <= 0 {
+		maxWorkers = 5 // DEFAULT
+	}
+	if maxWorkers > len(stage.Tasks) {
+		maxWorkers = len(stage.Tasks)
+	}
+
+	logger.Printf("EXECUTING %d TASKS WITH %d PARALLEL WORKERS", len(stage.Tasks), maxWorkers)
+
+	// CREATE WAIT GROUP AND ERROR CHANNEL
 	var wg sync.WaitGroup
-	info := &jobInfo{
-		ctx:             ctx,
-		cancel:          cancel,
-		browser:         browser,
-		job:             job,
-		startTime:       time.Now(),
-		visitedURLs:     make(map[string]bool),
-		foundAssets:     make(map[string]bool),
-		paginationLinks: []string{},
-		progress:        0,
-		wg:              &wg,
-	}
-
-	// TRY TO CREATE PAGE
-	log.Printf("CREATING PAGE FOR JOB %s", jobID)
-	page, err := (*browser).NewPage(playwright.BrowserNewPageOptions{
-		RecordVideo: &playwright.RecordVideo{
-			Dir: e.cfg.StoragePath,
-		},
-	})
-	if err != nil {
-		log.Printf("ERROR CREATING PAGE FOR JOB %s: %v", jobID, err)
-		e.updateJobStatus(jobID, "error")
-		return
-	}
-	info.page = &page
-	defer page.Close()
-	log.Printf("PAGE CREATED FOR JOB %s", jobID)
-
-	// CONFIGURE PAGE
-	log.Printf("CONFIGURING PAGE FOR JOB %s", jobID)
-	e.configurePage(info)
+	errChan := make(chan error, len(stage.Tasks))
 
 	// CREATE TASK QUEUE
-	taskQueue := make(chan scrapeTask, 100)
-	log.Printf("TASK QUEUE CREATED FOR JOB %s", jobID)
+	taskQueue := make(chan models.Task, len(stage.Tasks))
 
-	// CREATE DONE CHANNEL FOR CLEAN SHUTDOWN
-	done := make(chan struct{})
+	// ADD TASKS TO QUEUE
+	for _, task := range stage.Tasks {
+		// CHECK TASK CONDITION BEFORE ADDING TO QUEUE
+		if task.Condition.Type != "" && task.Condition.Type != "always" {
+			shouldExecute, err := e.evaluateCondition(ctx, jobID, task.Condition)
+			if err != nil {
+				logger.Printf("FAILED TO EVALUATE TASK CONDITION: %v", err)
+				e.addJobError(jobID, fmt.Sprintf("Failed to evaluate task condition: %v", err))
+				continue
+			}
 
-	// START WORKER GOROUTINES
-	maxWorkers := 5 // LIMIT CONCURRENT SCRAPES
-	log.Printf("STARTING %d WORKERS FOR JOB %s", maxWorkers, jobID)
-	for range maxWorkers {
+			if !shouldExecute {
+				logger.Printf("SKIPPING TASK %s DUE TO CONDITION", task.Name)
+				continue
+			}
+		}
+
+		taskQueue <- task
+	}
+	close(taskQueue)
+
+	// START WORKERS
+	for i := 0; i < maxWorkers; i++ {
 		wg.Add(1)
-		go e.scrapeWorker(info, taskQueue, &wg)
+		go func(workerID int) {
+			defer wg.Done()
+
+			workerLogger := log.New(logger.Writer(), fmt.Sprintf("[WORKER %d] ", workerID), 0)
+
+			for task := range taskQueue {
+				select {
+				case <-ctx.Done():
+					errChan <- ctx.Err()
+					return
+				default:
+					workerLogger.Printf("EXECUTING TASK: %s (%s)", task.Name, task.Type)
+
+					// PREPARE TASK INPUTS
+					taskInputs, err := e.prepareTaskInputs(jobID, task)
+					if err != nil {
+						workerLogger.Printf("FAILED TO PREPARE TASK INPUTS: %v", err)
+						e.addJobError(jobID, fmt.Sprintf("Failed to prepare task inputs: %v", err))
+						continue
+					}
+
+					// EXECUTE THE TASK
+					result, err := e.executeTask(ctx, jobID, task, taskInputs, workerLogger)
+					if err != nil {
+						workerLogger.Printf("TASK EXECUTION FAILED: %v", err)
+						e.addJobError(jobID, fmt.Sprintf("Task execution failed: %v", err))
+
+						// IF TASK HAS RETRY CONFIG, ATTEMPT RETRIES
+						if task.RetryConfig.MaxRetries > 0 {
+							retryResult, retryErr := e.retryTask(ctx, jobID, task, taskInputs, workerLogger)
+							if retryErr == nil {
+								// RETRY SUCCEEDED
+								result = retryResult
+								err = nil
+							}
+						}
+
+						if err != nil && ctx.Err() != nil {
+							errChan <- ctx.Err()
+							return
+						}
+					}
+
+					// STORE TASK RESULT
+					if err == nil {
+						e.mu.Lock()
+						progress := e.jobProgress[jobID]
+						progress.TaskResults[task.ID] = result
+						progress.CompletedTasks++
+						e.jobProgress[jobID] = progress
+						e.mu.Unlock()
+
+						workerLogger.Printf("TASK %s COMPLETED SUCCESSFULLY", task.Name)
+					}
+				}
+			}
+		}(i)
 	}
 
-	// ADD INITIAL URL TO QUEUE
-	log.Printf("ADDING INITIAL URL %s TO QUEUE FOR JOB %s", job.BaseURL, jobID)
-	taskQueue <- scrapeTask{url: job.BaseURL, depth: 0}
-
-	// MONITOR GOROUTINE FOR COMPLETION
+	// WAIT FOR ALL WORKERS OR CONTEXT CANCELLATION
+	waitChan := make(chan struct{})
 	go func() {
 		wg.Wait()
-		close(done)
+		close(waitChan)
 	}()
 
-	// WAIT FOR COMPLETION OR TIMEOUT
 	select {
+	case <-waitChan:
+		// ALL WORKERS COMPLETED
+		logger.Printf("ALL PARALLEL TASKS COMPLETED")
+
+	case err := <-errChan:
+		// WORKER ENCOUNTERED ERROR
+		return err
+
 	case <-ctx.Done():
-		// TIMEOUT OR CANCELLATION
-		log.Printf("JOB %s CONTEXT DONE: %v", jobID, ctx.Err())
-		close(taskQueue) // SAFELY CLOSE THE QUEUE
-		if ctx.Err() == context.DeadlineExceeded {
-			log.Printf("JOB %s TIMED OUT", jobID)
-			e.updateJobStatus(jobID, "timeout")
-		} else {
-			log.Printf("JOB %s STOPPED", jobID)
-			e.updateJobStatus(jobID, "stopped")
-		}
-	case <-done:
-		// ALL TASKS COMPLETED, SAFELY CLOSE QUEUE
-		log.Printf("JOB %s TASKS COMPLETED, CLOSING QUEUE", jobID)
-		close(taskQueue)
-
-		// PROCESS PAGINATION IF ANY
-		info.paginationMu.Lock()
-		paginationLinks := info.paginationLinks
-		info.paginationMu.Unlock()
-
-		if len(paginationLinks) > 0 {
-			log.Printf("JOB %s HAS %d PAGINATION LINKS TO PROCESS", jobID, len(paginationLinks))
-			// HANDLE PAGINATION LOGIC HERE - THIS WOULD BE A SEPARATE PHASE
-		}
-
-		log.Printf("JOB %s COMPLETED SUCCESSFULLY", jobID)
-		e.updateJobStatus(jobID, "completed")
-	}
-}
-
-// WORKER THAT PROCESSES URLS
-func (e *Engine) scrapeWorker(info *jobInfo, taskQueue chan scrapeTask, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	for task := range taskQueue {
-		// CHECK CONTEXT BEFORE PROCESSING
-		if info.ctx.Err() != nil {
-			log.Printf("WORKER EXITING DUE TO CANCELLED CONTEXT: %v", info.ctx.Err())
-			return
-		}
-
-		log.Printf("WORKER PROCESSING URL: %s (DEPTH: %d)", task.url, task.depth)
-		if err := e.processURL(info, task.url, task.depth, taskQueue); err != nil {
-			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-				log.Printf("WORKER EXITING DUE TO CONTEXT: %v", err)
-				return // EXIT ON CONTEXT DONE
-			}
-			log.Printf("ERROR PROCESSING URL %s: %v", task.url, err)
-		}
-	}
-	log.Printf("WORKER EXITING (QUEUE CLOSED)")
-}
-
-// CONFIGURE PAGE WITH DEFAULT SETTINGS
-func (e *Engine) configurePage(info *jobInfo) {
-	log.Printf("CONFIGURING PAGE WITH DEFAULT SETTINGS")
-	// SET USER AGENT AND HEADERS
-	(*info.page).SetExtraHTTPHeaders(map[string]string{
-		"User-Agent":                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-		"Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-		"Accept-Language":           "en-US,en;q=0.9",
-		"Accept-Encoding":           "gzip, deflate, br",
-		"Connection":                "keep-alive",
-		"Upgrade-Insecure-Requests": "1",
-		"Sec-Fetch-Dest":            "document",
-		"Sec-Fetch-Mode":            "navigate",
-		"Sec-Fetch-Site":            "none",
-		"Sec-Fetch-User":            "?1",
-	})
-
-	// SET TIMEOUT
-	(*info.page).SetDefaultTimeout(float64(e.cfg.DefaultTimeout))
-	log.Printf("PAGE TIMEOUT SET TO %d MS", e.cfg.DefaultTimeout)
-
-	// APPLY STEALTH MODE
-	log.Printf("APPLYING STEALTH MODE TO PAGE")
-	err := stealth.Inject(*info.page)
-	if err != nil {
-		log.Printf("STEALTH INJECTION FAILED: %v", err)
-	} else {
-		log.Printf("STEALTH MODE APPLIED SUCCESSFULLY")
-	}
-}
-
-func safeSendToQueue(taskQueue chan scrapeTask, task scrapeTask) bool {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("RECOVERED FROM PANIC WHEN SENDING TO QUEUE: %v", r)
-		}
-	}()
-
-	select {
-	case taskQueue <- task:
-		return true
-	default:
-		// TRY NON-BLOCKING SEND FIRST
-		select {
-		case taskQueue <- task:
-			return true
-		case <-time.After(100 * time.Millisecond):
-			// IF THE CHANNEL IS CLOSED, THIS WILL PANIC AND BE CAUGHT BY RECOVER
-			// ATTEMPT A SEND BUT WITH TIMEOUT TO AVOID BLOCKING FOREVER
-			return false
-		}
-	}
-}
-
-// PROCESS URL WITH RETRY LOGIC
-func (e *Engine) processURL(info *jobInfo, urlStr string, depth int, taskQueue chan scrapeTask) error {
-	log.Printf("PROCESSING URL: %s (DEPTH: %d)", urlStr, depth)
-	// CHECK CONTEXT
-	if info.ctx.Err() != nil {
-		log.Printf("CONTEXT ERROR WHILE PROCESSING %s: %v", urlStr, info.ctx.Err())
-		return info.ctx.Err()
+		// CONTEXT CANCELLED
+		return ctx.Err()
 	}
 
-	// CHECK IF URL ALREADY VISITED
-	info.urlsMu.Lock()
-	if info.visitedURLs[urlStr] {
-		info.urlsMu.Unlock()
-		log.Printf("URL ALREADY VISITED: %s", urlStr)
-		return nil
-	}
-	info.visitedURLs[urlStr] = true
-	info.urlsMu.Unlock()
-	log.Printf("URL MARKED AS VISITED: %s", urlStr)
-
-	// GET MAX DEPTH FROM RULES
-	maxDepth := 3 // DEFAULT
-	if val, ok := info.job.Rules["maxDepth"].(float64); ok {
-		maxDepth = int(val)
-	}
-	log.Printf("MAX DEPTH: %d, CURRENT: %d", maxDepth, depth)
-
-	// CHECK DEPTH LIMIT
-	if depth > maxDepth {
-		log.Printf("MAX DEPTH REACHED FOR URL: %s", urlStr)
-		return nil
-	}
-
-	// CHECK DOMAIN RESTRICTION
-	if sameDomainOnly, _ := info.job.Rules["sameDomainOnly"].(bool); sameDomainOnly {
-		if !isSameDomain(info.job.BaseURL, urlStr) {
-			log.Printf("URL %s SKIPPED (DIFFERENT DOMAIN)", urlStr)
-			return nil
-		}
-	}
-
-	// RANDOM DELAY BEFORE NAVIGATION
-	randDelay := time.Duration(100+rand.Intn(500)) * time.Millisecond
-	log.Printf("WAITING %d MS BEFORE NAVIGATION TO %s", randDelay.Milliseconds(), urlStr)
-	time.Sleep(randDelay)
-
-	// ATTEMPT NAVIGATION WITH RETRIES
-	maxRetries := 2
-	var err error
-
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		if attempt > 0 {
-			log.Printf("RETRY %d FOR URL %s", attempt, urlStr)
-			time.Sleep(time.Duration(attempt) * time.Second) // BACKOFF
-		}
-
-		// NAVIGATION ATTEMPT
-		log.Printf("NAVIGATING TO URL: %s (ATTEMPT: %d)", urlStr, attempt)
-		response, err := (*info.page).Goto(urlStr, playwright.PageGotoOptions{
-			WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-			Timeout:   playwright.Float(float64(e.cfg.DefaultTimeout)),
-		})
-
-		// CHECK FOR SUCCESS
-		if err == nil && response != nil && response.Status() < 400 {
-			log.Printf("NAVIGATION SUCCESSFUL: %s (STATUS: %d)", urlStr, response.Status())
-
-			// UPDATE PROGRESS
-			e.updateJobProgress(info.job.ID, len(info.visitedURLs))
-			log.Printf("PROGRESS UPDATED: %d URLS VISITED", len(info.visitedURLs))
-
-			// EXTRACT CONTENT
-			log.Printf("EXTRACTING CONTENT FROM %s", urlStr)
-			if err := e.extractContent(info, urlStr, depth, taskQueue); err != nil {
-				log.Printf("EXTRACTION ERROR FOR %s: %v", urlStr, err)
-			} else {
-				log.Printf("CONTENT EXTRACTED SUCCESSFULLY FROM %s", urlStr)
-			}
-
-			// SUCCESS - ADD RANDOM DELAY
-			baseDelay := 1000 // 1 SECOND
-			if delay, ok := info.job.Rules["requestDelay"].(float64); ok && delay > 0 {
-				baseDelay = int(delay)
-			}
-			jitter := float64(baseDelay) * (0.7 + 0.6*rand.Float64())
-			delay := time.Duration(jitter) * time.Millisecond
-			log.Printf("WAITING %d MS AFTER PROCESSING %s", delay.Milliseconds(), urlStr)
-			time.Sleep(delay)
-
-			return nil
-		}
-
-		// LOG ERROR
-		log.Printf("NAVIGATION ERROR FOR %s: %v", urlStr, err)
-
-		// CHECK FOR PERMANENT ERRORS
-		if err != nil && (strings.Contains(err.Error(), "ERR_CERT_") ||
-			strings.Contains(err.Error(), "ERR_NAME_NOT_RESOLVED") ||
-			strings.Contains(err.Error(), "ERR_CONNECTION_REFUSED")) {
-			log.Printf("PERMANENT ERROR FOR %s: %v", urlStr, err)
-			return nil // SKIP THIS URL
-		}
-	}
-
-	log.Printf("MAX RETRIES REACHED FOR %s: %v", urlStr, err)
 	return nil
 }
 
-// EXTRACT CONTENT FROM PAGE
-func (e *Engine) extractContent(info *jobInfo, urlStr string, depth int, taskQueue chan scrapeTask) error {
-	log.Printf("EXTRACTING CONTENT FROM %s", urlStr)
-	// CHECK CONTEXT
-	if info.ctx.Err() != nil {
-		log.Printf("CONTEXT ERROR DURING EXTRACTION: %v", info.ctx.Err())
-		return info.ctx.Err()
+// EXECUTE TASKS WITH WORKER-PER-ITEM PARALLELISM
+func (e *Engine) executeWorkerPerItemTasks(ctx context.Context, jobID string, job *models.Job, stage models.Stage, logger *log.Logger) error {
+	if len(stage.Tasks) == 0 {
+		logger.Printf("NO TASKS TO EXECUTE")
+		return nil
 	}
 
-	// PROCESS SELECTORS
-	for _, selectorItem := range info.job.Selectors {
-		selector, ok := selectorItem.(map[string]any)
-		if !ok {
-			log.Printf("INVALID SELECTOR FORMAT")
-			continue
+	// THIS MODE TYPICALLY WORKS WITH ONE TASK THAT PROCESSES MULTIPLE ITEMS
+	primaryTask := stage.Tasks[0]
+	logger.Printf("EXECUTING WORKER-PER-ITEM FOR TASK: %s", primaryTask.Name)
+
+	// CHECK INPUTS TO IDENTIFY THE ITEM SOURCE
+	itemSourceID := ""
+	for _, inputRef := range primaryTask.InputRefs {
+		// CHECK IF THIS INPUT CONTAINS AN ARRAY
+		e.mu.Lock()
+		inputData, exists := e.jobProgress[jobID].TaskResults[inputRef]
+		e.mu.Unlock()
+
+		if exists && inputData.Type == "array" {
+			itemSourceID = inputRef
+			break
 		}
+	}
 
-		selectorValue, _ := selector["value"].(string)
-		purpose, _ := selector["purpose"].(string)
-		attribute, _ := selector["attribute"].(string)
+	if itemSourceID == "" {
+		err := fmt.Errorf("NO ARRAY INPUT FOUND FOR WORKER-PER-ITEM TASK")
+		logger.Printf("%v", err)
+		return err
+	}
 
-		// SKIP EMPTY SELECTORS
-		if selectorValue == "" || attribute == "" {
-			log.Printf("EMPTY SELECTOR OR ATTRIBUTE")
-			continue
-		}
+	// GET THE ITEMS TO PROCESS
+	e.mu.Lock()
+	itemsData := e.jobProgress[jobID].TaskResults[itemSourceID]
+	e.mu.Unlock()
 
-		log.Printf("PROCESSING SELECTOR: %s (PURPOSE: %s, ATTRIBUTE: %s)", selectorValue, purpose, attribute)
+	items, ok := itemsData.Value.([]interface{})
+	if !ok {
+		err := fmt.Errorf("INVALID ITEM SOURCE DATA TYPE")
+		logger.Printf("%v", err)
+		return err
+	}
 
-		// QUERY FOR ELEMENTS
-		elements, err := (*info.page).Locator(selectorValue).All()
-		if err != nil {
-			log.Printf("SELECTOR ERROR %s: %v", selectorValue, err)
-			continue
-		}
-		log.Printf("FOUND %d ELEMENTS WITH SELECTOR %s", len(elements), selectorValue)
+	logger.Printf("PROCESSING %d ITEMS WITH WORKER-PER-ITEM", len(items))
 
-		// PROCESS ELEMENTS
-		for i, element := range elements {
-			// CHECK CONTEXT
-			if info.ctx.Err() != nil {
-				log.Printf("CONTEXT ERROR DURING ELEMENT PROCESSING: %v", info.ctx.Err())
-				return info.ctx.Err()
-			}
+	// DETERMINE MAX WORKERS
+	maxWorkers := stage.Parallelism.MaxWorkers
+	if maxWorkers <= 0 {
+		maxWorkers = 5 // DEFAULT
+	}
+	if maxWorkers > len(items) {
+		maxWorkers = len(items)
+	}
 
-			// GET ATTRIBUTE
-			attrValue, err := element.GetAttribute(attribute)
-			if err != nil || attrValue == "" {
-				log.Printf("ELEMENT %d: NO ATTRIBUTE %s FOUND", i, attribute)
-				continue
-			}
-			log.Printf("ELEMENT %d: ATTRIBUTE %s = %s", i, attribute, attrValue)
+	// CREATE WAIT GROUP AND ERROR CHANNEL
+	var wg sync.WaitGroup
+	errChan := make(chan error, len(items))
+	resultChan := make(chan struct {
+		index  int
+		result TaskData
+	}, len(items))
 
-			// RESOLVE URL
-			absURL := utils.ResolveURL(urlStr, attrValue)
-			if absURL == "" {
-				log.Printf("COULD NOT RESOLVE URL FROM %s", attrValue)
-				continue
-			}
-			log.Printf("RESOLVED URL: %s", absURL)
+	// CREATE ITEM QUEUE
+	type queueItem struct {
+		index int
+		item  interface{}
+	}
+	itemQueue := make(chan queueItem, len(items))
 
-			// HANDLE BASED ON PURPOSE
-			switch purpose {
-			case "assets", "asset":
-				// DETERMINE ASSET TYPE
-				assetType := ""
-				if tagName, err := element.Evaluate("el => el.tagName.toLowerCase()", nil); err == nil {
-					switch tagName {
-					case "img":
-						assetType = "image"
-					case "video", "source":
-						assetType = "video"
-					case "audio":
-						assetType = "audio"
+	// ADD ITEMS TO QUEUE
+	for i, item := range items {
+		itemQueue <- queueItem{index: i, item: item}
+	}
+	close(itemQueue)
+
+	// START WORKERS
+	for i := 0; i < maxWorkers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+
+			workerLogger := log.New(logger.Writer(), fmt.Sprintf("[WORKER %d] ", workerID), 0)
+
+			for qItem := range itemQueue {
+				select {
+				case <-ctx.Done():
+					errChan <- ctx.Err()
+					return
+				default:
+					workerLogger.Printf("PROCESSING ITEM %d", qItem.index)
+
+					// CREATE A COPY OF THE TASK WITH A UNIQUE ID
+					taskCopy := primaryTask
+					taskCopy.ID = fmt.Sprintf("%s_item_%d", primaryTask.ID, qItem.index)
+
+					// CREATE A CUSTOM INPUT WITH THIS ITEM
+					itemInputID := fmt.Sprintf("%s_item_%d", itemSourceID, qItem.index)
+
+					e.mu.Lock()
+					progress := e.jobProgress[jobID]
+					progress.TaskResults[itemInputID] = TaskData{
+						Type:  "object",
+						Value: qItem.item,
 					}
-					log.Printf("ASSET TYPE FROM TAG: %s", assetType)
+					e.mu.Unlock()
+
+					// REPLACE THE ARRAY INPUT WITH THE SINGLE ITEM INPUT
+					taskInputs := make(map[string]interface{})
+					for _, inputRef := range taskCopy.InputRefs {
+						if inputRef == itemSourceID {
+							taskInputs["item"] = qItem.item
+						} else {
+							e.mu.Lock()
+							inputData, exists := e.jobProgress[jobID].TaskResults[inputRef]
+							e.mu.Unlock()
+
+							if exists {
+								taskInputs[inputRef] = inputData.Value
+							}
+						}
+					}
+
+					// EXECUTE THE TASK
+					result, err := e.executeTask(ctx, jobID, taskCopy, taskInputs, workerLogger)
+					if err != nil {
+						workerLogger.Printf("TASK EXECUTION FAILED FOR ITEM %d: %v", qItem.index, err)
+						e.addJobError(jobID, fmt.Sprintf("Task execution failed for item %d: %v", qItem.index, err))
+
+						// IF TASK HAS RETRY CONFIG, ATTEMPT RETRIES
+						if taskCopy.RetryConfig.MaxRetries > 0 {
+							retryResult, retryErr := e.retryTask(ctx, jobID, taskCopy, taskInputs, workerLogger)
+							if retryErr == nil {
+								// RETRY SUCCEEDED
+								result = retryResult
+								err = nil
+							}
+						}
+
+						if err != nil && ctx.Err() != nil {
+							errChan <- ctx.Err()
+							return
+						}
+					}
+
+					// STORE INDIVIDUAL RESULT
+					if err == nil {
+						resultChan <- struct {
+							index  int
+							result TaskData
+						}{index: qItem.index, result: result}
+
+						e.mu.Lock()
+						progress := e.jobProgress[jobID]
+						progress.TaskResults[taskCopy.ID] = result
+						progress.CompletedTasks++
+						e.jobProgress[jobID] = progress
+						e.mu.Unlock()
+
+						workerLogger.Printf("ITEM %d PROCESSED SUCCESSFULLY", qItem.index)
+					}
 				}
+			}
+		}(i)
+	}
 
-				// FALLBACK TO URL DETECTION
-				if assetType == "" {
-					assetType = detectAssetType(absURL)
-					log.Printf("ASSET TYPE FROM URL: %s", assetType)
-				}
+	// WAIT FOR ALL WORKERS OR CONTEXT CANCELLATION
+	waitChan := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(waitChan)
+		close(resultChan)
+	}()
 
-				// PROCESS ASSET
-				log.Printf("PROCESSING ASSET: %s (TYPE: %s)", absURL, assetType)
-				e.processAssetURL(info, absURL, assetType, urlStr)
+	// COLLECT RESULTS
+	results := make([]interface{}, len(items))
+	resultCollector := make(chan struct{})
 
-			case "links", "link":
-				// SAFELY ADD TO QUEUE
-				log.Printf("ADDING LINK TO QUEUE: %s (DEPTH: %d)", absURL, depth+1)
-				if !safeSendToQueue(taskQueue, scrapeTask{url: absURL, depth: depth + 1}) {
-					log.Printf("FAILED TO ADD LINK TO QUEUE (LIKELY CLOSED): %s", absURL)
-				}
+	go func() {
+		for r := range resultChan {
+			results[r.index] = r.result.Value
+		}
+		close(resultCollector)
+	}()
 
-			case "pagination":
-				if depth == 0 {
-					// STORE FOR PROCESSING AFTER REGULAR LINKS
-					log.Printf("FOUND PAGINATION LINK: %s", absURL)
-					info.paginationMu.Lock()
-					info.paginationLinks = append(info.paginationLinks, absURL)
-					info.paginationMu.Unlock()
+	select {
+	case <-waitChan:
+		// WAIT FOR RESULT COLLECTION TO COMPLETE
+		<-resultCollector
+
+		// STORE COMBINED RESULTS
+		e.mu.Lock()
+		progress := e.jobProgress[jobID]
+		progress.TaskResults[primaryTask.ID+"_combined"] = TaskData{
+			Type:  "array",
+			Value: results,
+		}
+		e.jobProgress[jobID] = progress
+		e.mu.Unlock()
+
+		logger.Printf("ALL ITEMS PROCESSED SUCCESSFULLY")
+
+	case err := <-errChan:
+		// WORKER ENCOUNTERED ERROR
+		return err
+
+	case <-ctx.Done():
+		// CONTEXT CANCELLED
+		return ctx.Err()
+	}
+
+	return nil
+}
+
+// PREPARE TASK INPUTS
+func (e *Engine) prepareTaskInputs(jobID string, task models.Task) (map[string]interface{}, error) {
+	inputs := make(map[string]interface{})
+
+	// GET TASK IMPLEMENTATION
+	taskImpl, err := e.taskRegistry.GetTask(task.Type)
+	if err != nil {
+		return nil, err
+	}
+
+	// GET INPUT SCHEMA
+	inputSchema := taskImpl.GetInputSchema()
+
+	// FOR EACH INPUT REFERENCE, GET THE TASK RESULT
+	for inputName, inputType := range inputSchema {
+		// CHECK IF INPUT IS IN CONFIGURATION
+		if val, ok := task.Config[inputName]; ok {
+			inputs[inputName] = val
+			continue
+		}
+
+		// LOOK FOR INPUT IN TASK REFERENCES
+		found := false
+		for _, inputRef := range task.InputRefs {
+			e.mu.Lock()
+			inputData, exists := e.jobProgress[jobID].TaskResults[inputRef]
+			e.mu.Unlock()
+
+			if exists {
+				// CHECK TYPE COMPATIBILITY
+				if inputData.Type == inputType || inputType == "any" {
+					inputs[inputName] = inputData.Value
+					found = true
+					break
 				}
 			}
 		}
-	}
 
-	return nil
-}
-
-// DETECT ASSET TYPE FROM URL
-func detectAssetType(urlStr string) string {
-	ext := strings.ToLower(filepath.Ext(urlStr))
-	log.Printf("DETECTING ASSET TYPE FOR %s (EXT: %s)", urlStr, ext)
-
-	switch {
-	case strings.Contains(ext, ".jpg"), strings.Contains(ext, ".jpeg"),
-		strings.Contains(ext, ".png"), strings.Contains(ext, ".gif"),
-		strings.Contains(ext, ".bmp"), strings.Contains(ext, ".webp"):
-		return "image"
-	case strings.Contains(ext, ".mp4"), strings.Contains(ext, ".webm"),
-		strings.Contains(ext, ".mov"), strings.Contains(ext, ".avi"),
-		strings.Contains(ext, ".mkv"):
-		return "video"
-	case strings.Contains(ext, ".mp3"), strings.Contains(ext, ".wav"),
-		strings.Contains(ext, ".ogg"), strings.Contains(ext, ".flac"):
-		return "audio"
-	case strings.Contains(ext, ".pdf"), strings.Contains(ext, ".doc"),
-		strings.Contains(ext, ".docx"), strings.Contains(ext, ".txt"):
-		return "document"
-	default:
-		// CHECK URL PATTERNS
-		if strings.Contains(urlStr, "video") || strings.Contains(urlStr, "stream") {
-			return "video"
+		// IF REQUIRED INPUT NOT FOUND, RETURN ERROR
+		if !found && !strings.HasSuffix(inputType, "?") { // OPTIONAL INPUTS END WITH ?
+			return nil, fmt.Errorf("REQUIRED INPUT %s NOT FOUND FOR TASK %s", inputName, task.Name)
 		}
-		return "unknown"
 	}
+
+	return inputs, nil
 }
 
-// PROCESS ASSET URL
-func (e *Engine) processAssetURL(info *jobInfo, url string, assetType string, sourceURL string) {
-	log.Printf("PROCESSING ASSET URL: %s (TYPE: %s)", url, assetType)
-	// CHECK MAX ASSETS LIMIT
-	maxAssets := 0
-	if val, ok := info.job.Rules["maxAssets"].(float64); ok {
-		maxAssets = int(val)
-	}
-	log.Printf("MAX ASSETS: %d, CURRENT: %d", maxAssets, len(info.foundAssets))
-
-	// CHECK IF ALREADY PROCESSED
-	info.assetsMu.Lock()
-	defer info.assetsMu.Unlock()
-
-	if info.foundAssets[url] {
-		log.Printf("ASSET ALREADY PROCESSED: %s", url)
-		return
+// EXECUTE A SINGLE TASK
+func (e *Engine) executeTask(ctx context.Context, jobID string, task models.Task, inputs map[string]interface{}, logger *log.Logger) (TaskData, error) {
+	// GET TASK IMPLEMENTATION
+	taskImpl, err := e.taskRegistry.GetTask(task.Type)
+	if err != nil {
+		return TaskData{}, err
 	}
 
-	if maxAssets > 0 && len(info.foundAssets) >= maxAssets {
-		log.Printf("MAX ASSETS LIMIT REACHED, SKIPPING: %s", url)
-		return
+	// VALIDATE TASK CONFIG
+	if err := taskImpl.ValidateConfig(task.Config); err != nil {
+		return TaskData{}, fmt.Errorf("INVALID TASK CONFIG: %v", err)
 	}
 
-	// MARK AS FOUND
-	info.foundAssets[url] = true
-	log.Printf("ASSET MARKED AS FOUND: %s", url)
+	// MERGE INPUTS WITH CONFIG
+	config := make(map[string]interface{})
+	for k, v := range task.Config {
+		config[k] = v
+	}
+	for k, v := range inputs {
+		config[k] = v
+	}
 
-	// QUEUE PROCESSING
-	info.wg.Add(1)
-	log.Printf("QUEUING ASSET DOWNLOAD: %s", url)
-	go func(assetURL, assetType, sourcePage string) {
-		defer info.wg.Done()
-		e.processAsset(info, assetURL, assetType)
-	}(url, assetType, sourceURL)
+	// CREATE TASK CONTEXT
+	taskCtx := &TaskContext{
+		JobID:           jobID,
+		ResourceManager: e.resourceManager,
+		Context:         ctx,
+		Logger:          logger,
+		Engine:          e,
+	}
+
+	// EXECUTE TASK
+	logger.Printf("EXECUTING TASK %s (%s)", task.Name, task.Type)
+	return taskImpl.Execute(taskCtx, config)
 }
 
-// PROCESS ASSET DOWNLOAD
-func (e *Engine) processAsset(info *jobInfo, url string, assetType string) {
-	// CHECK CONTEXT
-	if info.ctx.Err() != nil {
-		log.Printf("CONTEXT ERROR FOR ASSET %s: %v", url, info.ctx.Err())
-		return
+// RETRY A FAILED TASK
+func (e *Engine) retryTask(ctx context.Context, jobID string, task models.Task, inputs map[string]interface{}, logger *log.Logger) (TaskData, error) {
+	maxRetries := task.RetryConfig.MaxRetries
+	delayMS := task.RetryConfig.DelayMS
+	backoffRate := task.RetryConfig.BackoffRate
+
+	if backoffRate <= 0 {
+		backoffRate = 1.5 // DEFAULT BACKOFF RATE
 	}
 
-	log.Printf("DOWNLOADING ASSET: %s (%s)", url, assetType)
+	if delayMS <= 0 {
+		delayMS = 1000 // DEFAULT DELAY 1 SECOND
+	}
 
-	// GENERATE FILENAME
-	urlHash := utils.GenerateHash(url)
-	ext := filepath.Ext(url)
-	if ext == "" {
-		// DEFAULT EXTENSIONS
-		switch assetType {
-		case "image":
-			ext = ".jpg"
-		case "video":
-			ext = ".mp4"
-		case "audio":
-			ext = ".mp3"
+	var lastErr error
+	var result TaskData
+
+	for retry := 1; retry <= maxRetries; retry++ {
+		// WAIT BEFORE RETRY WITH EXPONENTIAL BACKOFF
+		delay := time.Duration(float64(delayMS) * (float64(backoffRate) * float64(retry-1)))
+		logger.Printf("RETRYING TASK %s (ATTEMPT %d/%d) AFTER %v DELAY", task.Name, retry, maxRetries, delay)
+
+		select {
+		case <-time.After(time.Duration(delay) * time.Millisecond):
+			// CONTINUE WITH RETRY
+		case <-ctx.Done():
+			// CONTEXT CANCELLED
+			return TaskData{}, ctx.Err()
+		}
+
+		// EXECUTE TASK AGAIN
+		result, lastErr = e.executeTask(ctx, jobID, task, inputs, logger)
+		if lastErr == nil {
+			// RETRY SUCCEEDED
+			logger.Printf("TASK %s RETRY SUCCESSFUL (ATTEMPT %d)", task.Name, retry)
+			return result, nil
+		}
+
+		logger.Printf("TASK %s RETRY FAILED (ATTEMPT %d): %v", task.Name, retry, lastErr)
+
+		// CHECK FOR CONTEXT CANCELLATION
+		if ctx.Err() != nil {
+			return TaskData{}, ctx.Err()
+		}
+	}
+
+	// ALL RETRIES FAILED
+	logger.Printf("ALL RETRIES FAILED FOR TASK %s", task.Name)
+	return TaskData{}, lastErr
+}
+
+// EVALUATE A CONDITION
+func (e *Engine) evaluateCondition(ctx context.Context, jobID string, condition models.Condition) (bool, error) {
+	switch condition.Type {
+	case "always":
+		return true, nil
+
+	case "never":
+		return false, nil
+
+	case "javascript":
+		// IN A REAL IMPLEMENTATION, WOULD USE A JS ENGINE (E.G., GOJA)
+		// FOR NOW, JUST A MOCK IMPLEMENTATION
+		return true, nil
+
+	case "comparison":
+		// SIMPLE COMPARISON CONDITION
+		left, leftOk := condition.Config["left"]
+		right, rightOk := condition.Config["right"]
+		operator, operatorOk := condition.Config["operator"].(string)
+
+		if !leftOk || !rightOk || !operatorOk {
+			return false, fmt.Errorf("INVALID COMPARISON CONDITION")
+		}
+
+		switch operator {
+		case "eq":
+			return left == right, nil
+		case "neq":
+			return left != right, nil
+		case "gt":
+			// WOULD NEED TYPE CHECKING IN REAL IMPLEMENTATION
+			return false, nil
+		case "lt":
+			// WOULD NEED TYPE CHECKING IN REAL IMPLEMENTATION
+			return false, nil
 		default:
-			ext = ".bin"
+			return false, fmt.Errorf("UNKNOWN OPERATOR: %s", operator)
 		}
-		log.Printf("USING DEFAULT EXTENSION %s FOR %s", ext, url)
-	}
 
-	// CREATE ASSET RECORD
-	assetID := utils.GenerateID("asset")
-	log.Printf("CREATED ASSET ID: %s", assetID)
-	asset := models.Asset{
-		ID:        assetID,
-		JobID:     info.job.ID,
-		URL:       url,
-		Type:      assetType,
-		Date:      time.Now(),
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-
-	// CREATE STORAGE PATH
-	jobFolder := filepath.Join(e.cfg.StoragePath, "jobs", info.job.ID)
-	assetFolder := filepath.Join(jobFolder, assetType+"s")
-	log.Printf("ASSET FOLDER: %s", assetFolder)
-
-	// ENSURE DIRECTORIES EXIST
-	if err := os.MkdirAll(assetFolder, 0755); err != nil {
-		log.Printf("DIRECTORY ERROR: %v", err)
-		return
-	}
-
-	filename := assetID + "_" + urlHash + ext
-	localPath := filepath.Join(assetFolder, filename)
-	asset.LocalPath = localPath
-	log.Printf("ASSET LOCAL PATH: %s", localPath)
-
-	// DOWNLOAD BASED ON TYPE
-	var err error
-	switch assetType {
-	case "video":
-		log.Printf("DOWNLOADING VIDEO: %s", url)
-		err = e.downloadVideo(info, url, localPath)
-	case "image":
-		log.Printf("DOWNLOADING IMAGE: %s", url)
-		err = e.downloadWithPlaywright(info, url, localPath)
 	default:
-		log.Printf("DOWNLOADING GENERIC ASSET: %s", url)
-		err = e.downloadWithPlaywright(info, url, localPath)
+		return false, fmt.Errorf("UNKNOWN CONDITION TYPE: %s", condition.Type)
+	}
+}
+
+// ADD JOB ERROR
+func (e *Engine) addJobError(jobID string, errorMsg string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	progress := e.jobProgress[jobID]
+	progress.Errors = append(progress.Errors, errorMsg)
+	e.jobProgress[jobID] = progress
+}
+
+// FINISH JOB AND CLEANUP
+func (e *Engine) finishJob(jobID string) {
+	log.Printf("FINISHING JOB: %s", jobID)
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if startTime, ok := e.jobStartTimes[jobID]; ok {
+		duration := time.Since(startTime)
+		e.jobDurations[jobID] = duration
+		delete(e.jobStartTimes, jobID)
+		log.Printf("JOB %s DURATION: %v", jobID, duration)
 	}
 
-	if err != nil {
-		log.Printf("DOWNLOAD ERROR FOR %s: %v", url, err)
+	delete(e.runningJobs, jobID)
+
+	// CLEAN UP RESOURCES
+	e.resourceManager.DeleteJobResources(jobID)
+
+	log.Printf("JOB %s FINISHED AND CLEANED UP", jobID)
+}
+
+// UPDATE JOB STATUS
+func (e *Engine) updateJobStatus(jobID string, status string) {
+	log.Printf("UPDATING JOB %s STATUS: %s", jobID, status)
+
+	e.mu.Lock()
+	if progress, ok := e.jobProgress[jobID]; ok {
+		progress.Status = status
+		e.jobProgress[jobID] = progress
+	}
+	e.mu.Unlock()
+
+	if err := e.db.Model(&models.Job{}).Where("id = ?", jobID).Update("status", status).Error; err != nil {
+		log.Printf("STATUS UPDATE ERROR: %v", err)
 	} else {
-		log.Printf("ASSET DOWNLOADED SUCCESSFULLY: %s", url)
-		// GET FILE SIZE
-		if fileInfo, err := os.Stat(localPath); err == nil {
-			asset.Size = fileInfo.Size()
-			log.Printf("ASSET SIZE: %d BYTES", asset.Size)
-		}
-
-		// EXTRACT METADATA
-		log.Printf("EXTRACTING METADATA FOR %s", url)
-		if err := e.extractAssetMetadata(&asset); err != nil {
-			log.Printf("METADATA ERROR: %v", err)
-		} else {
-			log.Printf("METADATA EXTRACTED SUCCESSFULLY")
-		}
+		log.Printf("JOB %s STATUS UPDATED TO %s", jobID, status)
 	}
-
-	// SAVE TO DATABASE
-	log.Printf("SAVING ASSET TO DATABASE: %s", assetID)
-	if err := e.db.Create(&asset).Error; err != nil {
-		log.Printf("DB ERROR: %v", err)
-	} else {
-		log.Printf("ASSET SAVED TO DATABASE: %s", assetID)
-	}
-}
-
-// EXTRACT ASSET METADATA
-func (e *Engine) extractAssetMetadata(asset *models.Asset) error {
-	log.Printf("EXTRACTING METADATA FOR %s", asset.ID)
-	switch asset.Type {
-	case "image":
-		return e.extractImageMetadata(asset)
-	case "video":
-		return e.extractVideoMetadata(asset)
-	default:
-		log.Printf("NO METADATA EXTRACTION FOR TYPE: %s", asset.Type)
-		return nil // NO METADATA FOR OTHER TYPES
-	}
-}
-
-// EXTRACT IMAGE METADATA
-func (e *Engine) extractImageMetadata(asset *models.Asset) error {
-	log.Printf("EXTRACTING IMAGE METADATA: %s", asset.LocalPath)
-	file, err := os.Open(asset.LocalPath)
-	if err != nil {
-		log.Printf("ERROR OPENING IMAGE FILE: %v", err)
-		return err
-	}
-	defer file.Close()
-
-	// READ IMAGE CONFIG
-	config, _, err := image.DecodeConfig(file)
-	if err != nil {
-		log.Printf("ERROR DECODING IMAGE: %v", err)
-		return err
-	}
-
-	// STORE DIMENSIONS
-	if asset.Metadata == nil {
-		asset.Metadata = make(map[string]interface{})
-	}
-	asset.Metadata["width"] = config.Width
-	asset.Metadata["height"] = config.Height
-	log.Printf("IMAGE DIMENSIONS: %dx%d", config.Width, config.Height)
-
-	return nil
-}
-
-// EXTRACT VIDEO METADATA WITH FFPROBE
-func (e *Engine) extractVideoMetadata(asset *models.Asset) error {
-	log.Printf("EXTRACTING VIDEO METADATA: %s", asset.LocalPath)
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "ffprobe",
-		"-v", "quiet",
-		"-print_format", "json",
-		"-show_format",
-		"-show_streams",
-		asset.LocalPath)
-
-	log.Printf("RUNNING FFPROBE: %v", cmd.Args)
-	output, err := cmd.Output()
-	if err != nil {
-		log.Printf("FFPROBE ERROR: %v", err)
-		return fmt.Errorf("FFPROBE ERROR: %v", err)
-	}
-
-	// PARSE JSON
-	var metadata map[string]interface{}
-	if err := json.Unmarshal(output, &metadata); err != nil {
-		log.Printf("JSON ERROR: %v", err)
-		return fmt.Errorf("JSON ERROR: %v", err)
-	}
-
-	asset.Metadata = metadata
-	log.Printf("VIDEO METADATA EXTRACTED SUCCESSFULLY")
-	return nil
-}
-
-// DOWNLOAD VIDEO
-func (e *Engine) downloadVideo(info *jobInfo, url string, localPath string) error {
-	log.Printf("DOWNLOADING VIDEO: %s", url)
-
-	// CHECK CONTEXT FIRST
-	if info.ctx.Err() != nil {
-		log.Printf("CONTEXT ALREADY CANCELLED, SKIPPING DOWNLOAD: %v", info.ctx.Err())
-		return info.ctx.Err()
-	}
-
-	// CHECK FOR STREAMING
-	if strings.Contains(url, "m3u8") {
-		log.Printf("HLS STREAM DETECTED: %s", url)
-		return e.downloadHLSVideo(url, localPath)
-	} else if strings.Contains(url, ".mpd") {
-		log.Printf("DASH STREAM DETECTED: %s", url)
-		return e.downloadDASHVideo(url, localPath)
-	}
-
-	// TRY HTTP DOWNLOAD FIRST
-	log.Printf("ATTEMPTING HTTP VIDEO DOWNLOAD: %s", url)
-	err := e.downloadVideoHTTP(info, url, localPath)
-	if err == nil {
-		return nil
-	}
-
-	// FALLBACK TO PLAYWRIGHT IF HTTP FAILS
-	if info.ctx.Err() != nil {
-		log.Printf("CONTEXT CANCELLED DURING HTTP DOWNLOAD, ABORTING: %v", info.ctx.Err())
-		return info.ctx.Err()
-	}
-
-	log.Printf("HTTP DOWNLOAD FAILED, TRYING PLAYWRIGHT: %v", err)
-	return e.downloadWithPlaywright(info, url, localPath)
-}
-
-// DOWNLOAD VIDEO VIA HTTP
-func (e *Engine) downloadVideoHTTP(info *jobInfo, url string, localPath string) error {
-	log.Printf("DOWNLOADING VIDEO VIA HTTP: %s", url)
-
-	// CREATE CHILD CONTEXT WITH TIMEOUT
-	downloadCtx, cancelDownload := context.WithTimeout(info.ctx, 10*time.Minute)
-	defer cancelDownload()
-
-	// CREATE NEW GOROUTINE FOR DOWNLOAD TO PREVENT BLOCKING
-	downloadDone := make(chan error, 1)
-	go func() {
-		// CREATE HTTP REQUEST
-		req, err := http.NewRequestWithContext(downloadCtx, "GET", url, nil)
-		if err != nil {
-			log.Printf("HTTP REQUEST ERROR: %v", err)
-			downloadDone <- err
-			return
-		}
-
-		// SET HEADERS
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-		req.Header.Set("Accept", "*/*")
-		req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-		req.Header.Set("Accept-Encoding", "gzip, deflate, br")
-
-		// SET REFERER IF MAIN PAGE URL IS AVAILABLE
-		if info.page != nil {
-			req.Header.Set("Referer", (*info.page).URL())
-		}
-
-		// CREATE HTTP CLIENT WITH TIMEOUT
-		client := &http.Client{
-			Timeout: 5 * time.Minute,
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				// ALLOW UP TO 10 REDIRECTS
-				if len(via) >= 10 {
-					return errors.New("TOO MANY REDIRECTS")
-				}
-				return nil
-			},
-		}
-
-		// MAKE HTTP REQUEST
-		log.Printf("SENDING HTTP REQUEST FOR VIDEO: %s", url)
-		resp, err := client.Do(req)
-		if err != nil {
-			log.Printf("HTTP REQUEST FAILED: %v", err)
-			downloadDone <- err
-			return
-		}
-		defer resp.Body.Close()
-
-		// CHECK STATUS CODE
-		if resp.StatusCode != http.StatusOK {
-			err := fmt.Errorf("BAD STATUS CODE: %d", resp.StatusCode)
-			log.Printf("HTTP ERROR: %v", err)
-			downloadDone <- err
-			return
-		}
-
-		// CREATE OUTPUT FILE
-		log.Printf("CREATING FILE: %s", localPath)
-		out, err := os.Create(localPath)
-		if err != nil {
-			log.Printf("FILE CREATE ERROR: %v", err)
-			downloadDone <- err
-			return
-		}
-		defer out.Close()
-
-		// COPY WITH PROGRESS REPORTING AND CONTEXT CHECKING
-		written, err := io.Copy(out, resp.Body)
-		if err != nil {
-			log.Printf("DOWNLOAD WRITE ERROR: %v", err)
-			downloadDone <- err
-			return
-		}
-
-		log.Printf("VIDEO DOWNLOAD COMPLETE: %d BYTES", written)
-		downloadDone <- nil
-	}()
-
-	// WAIT FOR DOWNLOAD OR CONTEXT CANCELLATION
-	select {
-	case err := <-downloadDone:
-		return err
-	case <-downloadCtx.Done():
-		log.Printf("DOWNLOAD CANCELLED: %v", downloadCtx.Err())
-		return downloadCtx.Err()
-	}
-}
-
-// DOWNLOAD HLS STREAM
-func (e *Engine) downloadHLSVideo(url string, localPath string) error {
-	log.Printf("DOWNLOADING HLS STREAM: %s TO %s", url, localPath)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "ffmpeg",
-		"-i", url,
-		"-c", "copy",
-		"-bsf:a", "aac_adtstoasc",
-		"-y", localPath)
-
-	log.Printf("RUNNING FFMPEG: %v", cmd.Args)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("FFMPEG ERROR: %v - OUTPUT: %s", err, string(output))
-		return fmt.Errorf("FFMPEG ERROR: %v - OUTPUT: %s", err, string(output))
-	}
-	log.Printf("HLS DOWNLOAD SUCCESSFUL: %s", url)
-
-	return nil
-}
-
-// DOWNLOAD DASH STREAM
-func (e *Engine) downloadDASHVideo(url string, localPath string) error {
-	log.Printf("DOWNLOADING DASH STREAM: %s TO %s", url, localPath)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "ffmpeg",
-		"-i", url,
-		"-c", "copy",
-		"-y", localPath)
-
-	log.Printf("RUNNING FFMPEG: %v", cmd.Args)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("FFMPEG ERROR: %v - OUTPUT: %s", err, string(output))
-		return fmt.Errorf("FFMPEG ERROR: %v - OUTPUT: %s", err, string(output))
-	}
-	log.Printf("DASH DOWNLOAD SUCCESSFUL: %s", url)
-
-	return nil
-}
-
-// DOWNLOAD WITH PLAYWRIGHT
-func (e *Engine) downloadWithPlaywright(info *jobInfo, url string, localPath string) error {
-	log.Printf("DOWNLOADING WITH PLAYWRIGHT: %s", url)
-	// CREATE DOWNLOAD CONTEXT
-	downloadContext, err := (*info.browser).NewContext()
-	if err != nil {
-		log.Printf("CONTEXT ERROR: %v", err)
-		return fmt.Errorf("CONTEXT ERROR: %v", err)
-	}
-	defer downloadContext.Close()
-
-	// SET HEADERS
-	downloadContext.SetExtraHTTPHeaders(map[string]string{
-		"User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-		"Accept":          "*/*",
-		"Accept-Language": "en-US,en;q=0.9",
-		"Accept-Encoding": "gzip, deflate, br",
-		"Referer":         (*info.page).URL(),
-	})
-	log.Printf("DOWNLOAD HEADERS SET")
-
-	// CREATE PAGE
-	downloadPage, err := downloadContext.NewPage()
-	if err != nil {
-		log.Printf("PAGE ERROR: %v", err)
-		return fmt.Errorf("PAGE ERROR: %v", err)
-	}
-	defer downloadPage.Close()
-	log.Printf("DOWNLOAD PAGE CREATED")
-
-	// APPLY STEALTH
-	if err := stealth.Inject(downloadPage); err != nil {
-		log.Printf("STEALTH ERROR: %v", err)
-	} else {
-		log.Printf("STEALTH APPLIED TO DOWNLOAD PAGE")
-	}
-
-	// HANDLE DOWNLOAD
-	log.Printf("SETTING UP DOWNLOAD HANDLER FOR %s", url)
-	download, err := downloadPage.ExpectDownload(func() error {
-		log.Printf("NAVIGATING TO DOWNLOAD URL: %s", url)
-		_, err := downloadPage.Goto(url)
-		return err
-	})
-	if err != nil {
-		log.Printf("DOWNLOAD ERROR: %v", err)
-		return fmt.Errorf("DOWNLOAD ERROR: %v", err)
-	}
-	log.Printf("DOWNLOAD STARTED: %s", url)
-
-	// SAVE TO PATH
-	log.Printf("SAVING DOWNLOAD TO: %s", localPath)
-	if err := download.SaveAs(localPath); err != nil {
-		log.Printf("SAVE ERROR: %v", err)
-		return fmt.Errorf("SAVE ERROR: %v", err)
-	}
-	log.Printf("DOWNLOAD SAVED SUCCESSFULLY: %s", url)
-
-	return nil
 }
 
 // STOP JOB
@@ -1167,13 +1192,17 @@ func (e *Engine) StopJob(jobID string) error {
 
 	log.Printf("CANCELLING JOB: %s", jobID)
 	cancel()
-	e.updateJobStatus(jobID, "stopped")
-	log.Printf("JOB %s STOPPED", jobID)
+
+	// UPDATE JOB STATUS
+	progress := e.jobProgress[jobID]
+	progress.Status = "stopped"
+	e.jobProgress[jobID] = progress
+
 	return nil
 }
 
 // GET JOB PROGRESS
-func (e *Engine) GetJobProgress(jobID string) (int, error) {
+func (e *Engine) GetJobProgress(jobID string) (JobProgress, error) {
 	log.Printf("GETTING PROGRESS FOR JOB: %s", jobID)
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -1181,20 +1210,11 @@ func (e *Engine) GetJobProgress(jobID string) (int, error) {
 	progress, exists := e.jobProgress[jobID]
 	if !exists {
 		log.Printf("JOB %s NOT FOUND", jobID)
-		return 0, ErrJobNotFound
+		return JobProgress{}, ErrJobNotFound
 	}
 
-	log.Printf("JOB %s PROGRESS: %d", jobID, progress)
+	log.Printf("JOB %s PROGRESS: %d/%d TASKS", jobID, progress.CompletedTasks, progress.TotalTasks)
 	return progress, nil
-}
-
-// UPDATE JOB PROGRESS
-func (e *Engine) updateJobProgress(jobID string, progress int) {
-	log.Printf("UPDATING PROGRESS FOR JOB %s: %d", jobID, progress)
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	e.jobProgress[jobID] = progress
 }
 
 // GET JOB DURATION
@@ -1219,31 +1239,10 @@ func (e *Engine) GetJobDuration(jobID string) (time.Duration, error) {
 	return duration, nil
 }
 
-// FINISH JOB AND CLEANUP
-func (e *Engine) finishJob(jobID string) {
-	log.Printf("FINISHING JOB: %s", jobID)
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	if startTime, ok := e.jobStartTimes[jobID]; ok {
-		duration := time.Since(startTime)
-		e.jobDurations[jobID] = duration
-		delete(e.jobStartTimes, jobID)
-		log.Printf("JOB %s DURATION: %v", jobID, duration)
-	}
-
-	delete(e.runningJobs, jobID)
-	log.Printf("JOB %s FINISHED AND CLEANED UP", jobID)
-}
-
-// UPDATE JOB STATUS
-func (e *Engine) updateJobStatus(jobID string, status string) {
-	log.Printf("UPDATING JOB %s STATUS: %s", jobID, status)
-	if err := e.db.Model(&models.Job{}).Where("id = ?", jobID).Update("status", status).Error; err != nil {
-		log.Printf("STATUS UPDATE ERROR: %v", err)
-	} else {
-		log.Printf("JOB %s STATUS UPDATED TO %s", jobID, status)
-	}
+// GENERATE A UNIQUE ID
+func generateID(prefix string) string {
+	id := uuid.New().String()
+	return fmt.Sprintf("%s_%s", prefix, id)
 }
 
 // CLEAN UP RESOURCES
@@ -1261,6 +1260,7 @@ func (e *Engine) Close() {
 	}
 	e.runningJobs = make(map[string]context.CancelFunc)
 	e.mu.Unlock()
+
 	log.Printf("ALL JOBS STOPPED")
 
 	// DRAIN POOL AND CLOSE BROWSERS
@@ -1274,6 +1274,7 @@ func (e *Engine) Close() {
 			(*browser.browser).Close()
 		}
 	}
+
 	log.Printf("%d BROWSERS CLOSED", browserCount)
 
 	// STOP PLAYWRIGHT
@@ -1288,25 +1289,4 @@ func (e *Engine) Close() {
 	e.initMu.Unlock()
 
 	log.Printf("ENGINE SHUTDOWN COMPLETE")
-}
-
-// CHECK IF SAME DOMAIN
-func isSameDomain(baseURLStr, targetURLStr string) bool {
-	baseURL, err := url.Parse(baseURLStr)
-	if err != nil {
-		log.Printf("COULD NOT PARSE BASE URL: %v", err)
-		return false
-	}
-
-	targetURL, err := url.Parse(targetURLStr)
-	if err != nil {
-		log.Printf("COULD NOT PARSE TARGET URL: %v", err)
-		return false
-	}
-
-	baseHost := baseURL.Hostname()
-	targetHost := targetURL.Hostname()
-
-	log.Printf("COMPARING DOMAINS: %s vs %s", baseHost, targetHost)
-	return baseHost == targetHost
 }

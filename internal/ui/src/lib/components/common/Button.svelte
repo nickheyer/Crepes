@@ -9,8 +9,8 @@
       fullWidth = false,
       loading = false,
       type = 'button',
-      onclick = null,
-      children
+      onclick = () => {},
+      children = () => {}
   } = $props();
   
   // MAP VARIANTS TO DAISYUI CLASSES

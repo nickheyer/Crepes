@@ -8,22 +8,30 @@
       loadJobs,
       startJobById,
       stopJobById,
-      removeJob,
-      resetJobWizard
-  } from "$lib/stores/jobStore.svelte";
+      removeJob
+  } from "$lib/stores/jobStore.svelte.js";
   import Card from '$lib/components/common/Card.svelte';
   import Button from '$lib/components/common/Button.svelte';
-  import JobWizard from '$lib/components/jobs/JobWizard.svelte';
+  import JobBuilder from '$lib/components/jobs/JobBuilder.svelte';
   import { formatDate, formatRelativeTime } from '$lib/utils/formatters';
-  import { addToast } from '$lib/stores/uiStore.svelte';
+  import { addToast } from '$lib/stores/uiStore.svelte.js';
+  import { createJob, updateJob } from '$lib/utils/api.js';
   
-  // Local state
+  // LOCAL STATE
   let loading = $state(true);
   let jobFilter = $state('');
   let statusFilter = $state('');
   let confirmingDelete = $state(null);
+  let newJobModalOpen = $state(false);
+  let newJob = $state({
+    name: '',
+    baseUrl: '',
+    description: '',
+    schedule: '',
+    data: {}
+  });
   
-  // Load jobs on mount
+  // LOAD JOBS ON MOUNT
   onMount(async () => {
     try {
       await loadJobs();
@@ -34,27 +42,40 @@
     }
   });
   
-  // Open new job modal
+  // OPEN NEW JOB MODAL
   function openNewJobModal() {
-    // Reset the wizard before opening
-    resetJobWizard();
-    jobState.createJobModal = true;
+    // RESET NEW JOB OBJECT
+    newJob = {
+      name: '',
+      baseUrl: '',
+      description: '',
+      schedule: '',
+      data: {
+        pipeline: null,
+        jobConfig: null
+      }
+    };
+    newJobModalOpen = true;
   }
   
-  // Handle job actions
+  // HANDLE JOB ACTIONS
   async function handleStartJob(id) {
     try {
       await startJobById(id);
+      addToast('Job started successfully', 'success');
     } catch (error) {
       console.error('Error starting job:', error);
+      addToast(`Failed to start job: ${error.message}`, 'error');
     }
   }
   
   async function handleStopJob(id) {
     try {
       await stopJobById(id);
+      addToast('Job stopped successfully', 'success');
     } catch (error) {
       console.error('Error stopping job:', error);
+      addToast(`Failed to stop job: ${error.message}`, 'error');
     }
   }
   
@@ -77,18 +98,41 @@
     confirmingDelete = null;
   }
   
-  function handleJobCreationSuccess() {
-    jobState.createJobModal = false;
-    loadJobs();
+  async function handleSaveNewJob() {
+    if (!newJob.name || !newJob.baseUrl) {
+      addToast('Name and Base URL are required', 'error');
+      return;
+    }
+    
+    try {
+      const response = await createJob(newJob);
+      newJobModalOpen = false;
+      await loadJobs();
+      addToast('Job created successfully', 'success');
+    } catch (error) {
+      console.error('Error creating job:', error);
+      addToast(`Failed to create job: ${error.message}`, 'error');
+    }
   }
   
-  function handleJobCreationCancel() {
-    jobState.createJobModal = false;
+  function handleJobBuilderSave(event) {
+    // GET THE PIPELINE AND CONFIG FROM THE BUILDER
+    const { pipeline, jobConfig } = event.detail;
+    
+    // UPDATE THE NEW JOB OBJECT
+    newJob.data = {
+      ...newJob.data,
+      pipeline: JSON.stringify(pipeline),
+      jobConfig: JSON.stringify(jobConfig)
+    };
   }
   
+  // FILTER JOBS
   let filteredJobs = $derived(jobState.jobs.filter((job) => {
       // SEARCH
-      const searchMatch = (!jobFilter || jobFilter.length === 0) || (job.name && job.name.toLowerCase().includes(jobFilter.toLowerCase())) || job.baseUrl.toLowerCase().includes(jobFilter.toLowerCase());
+      const searchMatch = (!jobFilter || jobFilter.length === 0) || 
+                            (job.name && job.name.toLowerCase().includes(jobFilter.toLowerCase())) || 
+                            job.baseUrl.toLowerCase().includes(jobFilter.toLowerCase());
       
       // STATUS
       const statusMatch = (!statusFilter || statusFilter.length === 0) || job.status === statusFilter;
@@ -116,7 +160,7 @@
     </Button>
   </div>
   
-  <!-- Filters -->
+  <!-- FILTERS -->
   <Card class="mb-6">
     <div class="flex flex-col md:flex-row md:items-center gap-4">
       <div class="flex-1">
@@ -218,6 +262,20 @@
                   <p class="text-xs text-dark-400">Assets</p>
                   <p class="text-sm">{job.assets?.length || 0}</p>
                 </div>
+                
+                {#if job.data?.pipeline}
+                  <div>
+                    <p class="text-xs text-dark-400">Pipeline</p>
+                    <p class="text-sm">
+                      {#if job.data.pipeline}
+                        {@const pipelineData = JSON.parse(job.data.pipeline)}
+                        {pipelineData.length} stages, {pipelineData.reduce((total, stage) => total + stage.tasks.length, 0)} tasks
+                      {:else}
+                        Defined
+                      {/if}
+                    </p>
+                  </div>
+                {/if}
               </div>
             </div>
             
@@ -296,19 +354,103 @@
   {/if}
 </section>
 
-<!-- Job Creation Modal -->
-{#if jobState.createJobModal}
+<!-- CREATE NEW JOB MODAL -->
+{#if newJobModalOpen}
   <div class="modal modal-open">
-    <div class="modal-box max-w-5xl w-full">
-      <h3 class="font-bold text-lg mb-4">Create New Job</h3>
-      <JobWizard
-        onSuccess={handleJobCreationSuccess}
-        onCancel={handleJobCreationCancel}
-      />
+    <div class="modal-box max-w-7xl w-full h-[90vh] overflow-y-auto">
+      <div class="sticky top-0 bg-base-800 py-2 z-10 flex justify-between items-center">
+        <h3 class="font-bold text-lg">Create New Job</h3>
+        <button 
+          onclick={() => newJobModalOpen = false} 
+          class="bg-base-700 hover:bg-base-600 p-2 rounded-full"
+          aria-label="newjobmodalcreate"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      
+      <div class="space-y-6 mt-4">
+        <!-- BASIC INFO SECTION -->
+        <Card title="Basic Information">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label for="job-name" class="block text-sm font-medium text-dark-300 mb-1">
+                Job Name <span class="text-danger-500">*</span>
+              </label>
+              <input
+                id="job-name"
+                type="text"
+                bind:value={newJob.name}
+                placeholder="E.g., Product Scraper"
+                class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              />
+            </div>
+            
+            <div>
+              <label for="base-url" class="block text-sm font-medium text-dark-300 mb-1">
+                Base URL <span class="text-danger-500">*</span>
+              </label>
+              <input
+                id="base-url"
+                type="text"
+                bind:value={newJob.baseUrl}
+                placeholder="https://example.com"
+                class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              />
+            </div>
+            
+            <div class="md:col-span-2">
+              <label for="description" class="block text-sm font-medium text-dark-300 mb-1">
+                Description
+              </label>
+              <textarea
+                id="description"
+                bind:value={newJob.description}
+                placeholder="Describe the purpose of this job..."
+                rows="3"
+                class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              ></textarea>
+            </div>
+            
+            <div>
+              <label for="schedule" class="block text-sm font-medium text-dark-300 mb-1">
+                Schedule (CRON Expression)
+              </label>
+              <input
+                id="schedule"
+                type="text"
+                bind:value={newJob.schedule}
+                placeholder="E.g., 0 0 * * * (daily at midnight)"
+                class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              />
+              <p class="text-xs text-dark-400 mt-1">
+                Leave empty for manual execution only
+              </p>
+            </div>
+          </div>
+        </Card>
+        
+        <!-- PIPELINE BUILDER SECTION -->
+        <Card title="Pipeline Builder">
+          <JobBuilder on:save={handleJobBuilderSave} />
+        </Card>
+        
+        <!-- ACTIONS -->
+        <div class="flex justify-end space-x-3">
+          <Button variant="outline" onclick={() => newJobModalOpen = false}>
+            Cancel
+          </Button>
+          <Button variant="primary" onclick={handleSaveNewJob}>
+            Create Job
+          </Button>
+        </div>
+      </div>
     </div>
     <div
       class="modal-backdrop"
-      onclick={handleJobCreationCancel}
+      onclick={() => newJobModalOpen = false}
       onkeydown={() => {}}
       role="button"
       aria-label="Close modal"

@@ -310,7 +310,8 @@ func RegisterJobHandlers(router *mux.Router, db *gorm.DB, engine *scraper.Engine
 		}
 		jobProgress, err := engine.GetJobProgress(id)
 		if err != nil {
-			jobProgress = 0
+			jobProgress.CompletedTasks = 0
+			jobProgress.TotalTasks = 0
 		}
 
 		jobDuration, err := engine.GetJobDuration(id)

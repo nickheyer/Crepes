@@ -27,6 +27,9 @@
 		"vite": "^6.0.0"
 	},
 	"dependencies": {
+		"@dnd-kit-svelte/core": "^0.0.8",
+		"@dnd-kit-svelte/modifiers": "^0.0.8",
+		"@dnd-kit-svelte/sortable": "^0.0.8",
 		"@types/estree": "^1.0.6",
 		"daisyui": "^5.0.0",
 		"dayjs": "^1.11.13",

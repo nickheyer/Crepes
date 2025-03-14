@@ -3,28 +3,27 @@
     import { page } from "$app/stores";
     import Card from "$lib/components/common/Card.svelte";
     import Button from "$lib/components/common/Button.svelte";
+    import Tabs from "$lib/components/common/Tabs.svelte";
+    import JobBuilder from "$lib/components/jobs/JobBuilder.svelte";
     import {
         state as jobState,
         loadJobs,
         startJobById,
         stopJobById,
-        removeJob,
-        resetJobWizard,
-        updateJobWizardStep
-    } from "$lib/stores/jobStore.svelte";
+        removeJob
+    } from "$lib/stores/jobStore.svelte.js";
 
     import { 
         state as assetState,
         loadAssets, 
         updateFilters,
         filteredAssets
-    } from "$lib/stores/assetStore.svelte";
+    } from "$lib/stores/assetStore.svelte.js";
     import AssetGrid from "$lib/components/assets/AssetGrid.svelte";
     import AssetViewer from "$lib/components/assets/AssetViewer.svelte";
-    import JobWizard from "$lib/components/jobs/JobWizard.svelte";
-    import { fetchJobStatistics } from "$lib/utils/api";
+    import { fetchJobStatistics, updateJob } from "$lib/utils/api.js";
     import { formatDate, formatJobStatus, formatProgress } from "$lib/utils/formatters";
-    import { addToast } from "$lib/stores/uiStore.svelte";
+    import { addToast } from "$lib/stores/uiStore.svelte.js";
     import {
         Play, 
         StopCircle, 
@@ -33,7 +32,12 @@
         Trash,
         CopyPlus,
         Clock,
-        Edit
+        Edit,
+        Workflow,
+        Settings,
+        Save,
+        Blocks,
+        Code
     } from 'lucide-svelte';
     
     // JOB ID FROM ROUTE
@@ -43,17 +47,22 @@
     let job = $state(null);
     let loading = $state(true);
     let assetsLoading = $state(true);
+    let savingPipeline = $state(false);
     let confirmDelete = $state(false);
+    let pipelineEditorOpen = $state(false);
+    let editBasicInfoOpen = $state(false);
+    let editingJob = $state(null);
     let statistics = $state({
         totalAssets: 0,
         assetTypes: {},
-        progress: 0,
+        progress: {
+            completedTasks: 0,
+            totalTasks: 0
+        },
         duration: "0s"
     });
     let refreshInterval;
-    
-    // INITIALIZE EDIT MODAL STATE 
-    jobState.editJobModal = false;
+    let activeTab = $state('overview');
     
     onMount(async () => {
         await loadJobData();
@@ -149,21 +158,101 @@
         }
     }
     
-    // OPEN EDIT JOB MODAL
-    function openEditJobModal() {
-        if (job) {
-            // Reset the wizard and populate it with the current job data
-            resetJobWizard();
-            updateJobWizardStep(1, job);
-            jobState.editJobModal = true;
+    // OPEN PIPELINE EDITOR
+    function openPipelineEditor() {
+        pipelineEditorOpen = true;
+    }
+    
+    // OPEN BASIC INFO EDITOR
+    function openBasicInfoEditor() {
+        editingJob = {...job};
+        editBasicInfoOpen = true;
+    }
+    
+    // SAVE PIPELINE CHANGES
+    async function handleSavePipeline(event) {
+        const { pipeline, jobConfig } = event.detail;
+        
+        try {
+            savingPipeline = true;
+            
+            // PREPARE UPDATED JOB DATA
+            const updatedJob = {
+                ...job,
+                data: {
+                    ...job.data,
+                    pipeline: JSON.stringify(pipeline),
+                    jobConfig: JSON.stringify(jobConfig)
+                }
+            };
+            
+            // SAVE CHANGES
+            await updateJob(updatedJob);
+            addToast("Pipeline saved successfully", "success");
+            
+            // RELOAD JOB DATA
+            await loadJobData();
+            
+            // CLOSE EDITOR
+            pipelineEditorOpen = false;
+        } catch (error) {
+            console.error("ERROR SAVING PIPELINE:", error);
+            addToast(`Failed to save pipeline: ${error.message}`, "error");
+        } finally {
+            savingPipeline = false;
         }
     }
     
-    // HANDLE EDIT JOB SUCCESS
-    function handleEditSuccess() {
-        jobState.editJobModal = false;
-        addToast("JOB UPDATED SUCCESSFULLY", "success");
-        loadJobData();
+    // SAVE BASIC INFO CHANGES
+    async function handleSaveBasicInfo() {
+        if (!editingJob.name || !editingJob.baseUrl) {
+            addToast("Name and Base URL are required", "error");
+            return;
+        }
+        
+        try {
+            // PRESERVE DATA PROPERTIES
+            const updatedJob = {
+                ...editingJob,
+                data: job.data 
+            };
+            
+            // SAVE CHANGES
+            await updateJob(updatedJob);
+            addToast("Job information updated successfully", "success");
+            
+            // RELOAD JOB DATA
+            await loadJobData();
+            
+            // CLOSE EDITOR
+            editBasicInfoOpen = false;
+        } catch (error) {
+            console.error("ERROR UPDATING JOB:", error);
+            addToast(`Failed to update job: ${error.message}`, "error");
+        }
+    }
+    
+    // HELPER FUNCTION TO PARSE PIPELINE DATA
+    function getPipelineStats() {
+        if (!job?.data?.pipeline) return { stages: 0, tasks: 0 };
+        
+        try {
+            const pipelineData = JSON.parse(job.data.pipeline);
+            return {
+                stages: pipelineData.length,
+                tasks: pipelineData.reduce((total, stage) => total + stage.tasks.length, 0)
+            };
+        } catch {
+            return { stages: 0, tasks: 0 };
+        }
+    }
+    
+    // CALCULATE PROGRESS PERCENTAGE
+    function getProgressPercentage() {
+        if (!statistics?.progress) return 0;
+        const { completedTasks, totalTasks } = statistics.progress;
+        if (totalTasks === 0) return 0;
+        return Math.round((completedTasks / totalTasks) * 100);
     }
 </script>
 
@@ -256,10 +345,14 @@
                 Refresh
             </Button>
 
-            <!-- ADD EDIT BUTTON -->
-            <Button variant="primary" onclick={openEditJobModal}>
+            <Button variant="primary" onclick={openBasicInfoEditor}>
                 <Edit class="h-5 w-5 mr-1" />
-                Edit Job
+                Edit Details
+            </Button>
+            
+            <Button variant="primary" onclick={openPipelineEditor}>
+                <Workflow class="h-5 w-5 mr-1" />
+                Edit Pipeline
             </Button>
 
             <div class="flex items-center space-x-2"></div>
@@ -286,209 +379,300 @@
             {/if}
         </div>
 
-        <!-- JOB STATISTICS -->
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-            <Card>
-                <div class="flex flex-col items-center p-3">
-                    <h3 class="text-sm font-medium text-dark-300 mb-1">
-                        Total Assets
-                    </h3>
-                    <p class="text-2xl font-semibold">
-                        {statistics.totalAssets}
-                    </p>
+        <!-- TABS NAVIGATION -->
+        <Tabs
+            tabs={[
+                { id: 'overview', label: 'Overview', icon: Settings },
+                { id: 'assets', label: 'Assets', icon: CopyPlus },
+                { id: 'pipeline', label: 'Pipeline', icon: Workflow }
+            ]}
+            bind:activeTab={activeTab}
+        />
+
+        <!-- TAB CONTENT -->
+        <div class="mt-6">
+            <!-- OVERVIEW TAB -->
+            {#if activeTab === 'overview'}
+                <!-- JOB STATISTICS -->
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                    <Card>
+                        <div class="flex flex-col items-center p-3">
+                            <h3 class="text-sm font-medium text-dark-300 mb-1">
+                                Total Assets
+                            </h3>
+                            <p class="text-2xl font-semibold">
+                                {statistics.totalAssets}
+                            </p>
+                        </div>
+                    </Card>
+                    <Card>
+                        <div class="flex flex-col items-center p-3">
+                            <h3 class="text-sm font-medium text-dark-300 mb-1">
+                                Progress
+                            </h3>
+                            <p class="text-2xl font-semibold">
+                                {getProgressPercentage()}%
+                            </p>
+                            {#if job.status === "running"}
+                                <div class="w-full bg-base-700 h-2 rounded-full mt-2">
+                                    <div
+                                        class="bg-primary-600 h-2 rounded-full"
+                                        style={`width: ${getProgressPercentage()}%`}
+                                    ></div>
+                                </div>
+                                <div class="text-xs text-dark-400 mt-1">
+                                    {statistics.progress.completedTasks} / {statistics.progress.totalTasks} tasks
+                                </div>
+                            {/if}
+                        </div>
+                    </Card>
+                    <Card>
+                        <div class="flex flex-col items-center p-3">
+                            <h3 class="text-sm font-medium text-dark-300 mb-1">
+                                Duration
+                            </h3>
+                            <p class="text-2xl font-semibold">
+                                {statistics.duration || "0s"}
+                            </p>
+                        </div>
+                    </Card>
+                    <Card>
+                        <div class="flex flex-col items-center p-3">
+                            <h3 class="text-sm font-medium text-dark-300 mb-1">
+                                Schedule
+                            </h3>
+                            <div class="flex items-center">
+                                <Clock class="h-5 w-5 mr-1 text-dark-300" />
+                                <p class="text-sm">{job.schedule || "Not scheduled"}</p>
+                            </div>
+                            {#if job.nextRun}
+                                <p class="text-xs text-dark-400 mt-1">
+                                    Next run: {formatDate(job.nextRun)}
+                                </p>
+                            {/if}
+                        </div>
+                    </Card>
                 </div>
-            </Card>
-            <Card>
-                <div class="flex flex-col items-center p-3">
-                    <h3 class="text-sm font-medium text-dark-300 mb-1">
-                        Progress
-                    </h3>
-                    <p class="text-2xl font-semibold">
-                        {formatProgress(statistics.progress || 0)}
-                    </p>
-                    {#if job.status === "running"}
-                        <div class="w-full bg-base-700 h-2 rounded-full mt-2">
+
+                <!-- JOB CONFIGURATION -->
+                <Card title="Job Configuration" class="mb-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <h3 class="text-sm font-medium text-dark-300 mb-2">
+                                Base URL
+                            </h3>
+                            <p class="text-sm break-all bg-base-900 p-2 rounded">
+                                {job.baseUrl}
+                            </p>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-medium text-dark-300 mb-2">
+                                Status
+                            </h3>
+                            <p class="text-sm">{formatJobStatus(job.status)}</p>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-medium text-dark-300 mb-2">
+                                Last Run
+                            </h3>
+                            <p class="text-sm">
+                                {job.lastRun ? formatDate(job.lastRun) : "Never"}
+                            </p>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-medium text-dark-300 mb-2">
+                                Schedule
+                            </h3>
+                            <p class="text-sm">{job.schedule || "Not scheduled"}</p>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-medium text-dark-300 mb-2">
+                                Pipeline
+                            </h3>
+                            <p class="text-sm">
+                                {#if job.data?.pipeline}
+                                    {@const stats = getPipelineStats()}
+                                    {stats.stages} stages with {stats.tasks} tasks
+                                {:else}
+                                    No pipeline defined
+                                {/if}
+                            </p>
+                        </div>
+                    </div>
+                </Card>
+                
+                <!-- ASSET TYPE DISTRIBUTION -->
+                {#if statistics.assetTypes && Object.keys(statistics.assetTypes).length > 0}
+                    <Card title="Asset Types" class="mb-6">
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            {#each Object.entries(statistics.assetTypes) as [type, count]}
+                                <div class="bg-base-900 p-3 rounded-lg">
+                                    <p class="text-xs text-dark-400">{type}</p>
+                                    <p class="text-lg font-medium">{count}</p>
+                                </div>
+                            {/each}
+                        </div>
+                    </Card>
+                {/if}
+            {/if}
+
+            <!-- ASSETS TAB -->
+            {#if activeTab === 'assets'}
+                <Card title="Assets">
+                    {#if assetsLoading}
+                        <div class="py-20 flex justify-center">
                             <div
-                                class="bg-primary-600 h-2 rounded-full"
-                                style={`width: ${statistics.progress || 0}%`}
+                                class="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-primary-500"
                             ></div>
                         </div>
+                    {:else if filteredAssets && filteredAssets.length === 0}
+                        <div class="text-center py-12">
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                class="h-16 w-16 mx-auto text-dark-500 mb-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                            >
+                                <path
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    stroke-width="2"
+                                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                                />
+                            </svg>
+                            <h3 class="text-lg font-medium mb-2">No assets found</h3>
+                            <p class="text-dark-400 mb-4">
+                                Start the job to begin collecting assets
+                            </p>
+                            {#if job.status !== "running"}
+                                <Button variant="success" onclick={handleStartJob}>
+                                    <Play class="h-5 w-5 mr-1" />
+                                    Start Job
+                                </Button>
+                            {/if}
+                        </div>
+                    {:else}
+                        <AssetGrid />
                     {/if}
-                </div>
-            </Card>
-            <Card>
-                <div class="flex flex-col items-center p-3">
-                    <h3 class="text-sm font-medium text-dark-300 mb-1">
-                        Duration
-                    </h3>
-                    <p class="text-2xl font-semibold">
-                        {statistics.duration || "0s"}
-                    </p>
-                </div>
-            </Card>
-            <Card>
-                <div class="flex flex-col items-center p-3">
-                    <h3 class="text-sm font-medium text-dark-300 mb-1">
-                        Schedule
-                    </h3>
-                    <div class="flex items-center">
-                        <Clock class="h-5 w-5 mr-1 text-dark-300" />
-                        <p class="text-sm">{job.schedule || "Not scheduled"}</p>
-                    </div>
-                    {#if job.nextRun}
-                        <p class="text-xs text-dark-400 mt-1">
-                            Next run: {formatDate(job.nextRun)}
-                        </p>
-                    {/if}
-                </div>
-            </Card>
-        </div>
+                </Card>
+            {/if}
 
-        <!-- JOB ASSETS -->
-        <Card title="Assets" class="mb-6">
-            {#if assetsLoading}
-                <div class="py-20 flex justify-center">
-                    <div
-                        class="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-primary-500"
-                    ></div>
-                </div>
-            {:else if filteredAssets && filteredAssets.length === 0}
-                <div class="text-center py-12">
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        class="h-16 w-16 mx-auto text-dark-500 mb-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                    >
-                        <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                        />
-                    </svg>
-                    <h3 class="text-lg font-medium mb-2">No assets found</h3>
-                    <p class="text-dark-400 mb-4">
-                        Start the job to begin collecting assets
-                    </p>
-                    {#if job.status !== "running"}
-                        <Button variant="success" onclick={handleStartJob}>
-                            <Play class="h-5 w-5 mr-1" />
-                            Start Job
+            <!-- PIPELINE TAB -->
+            {#if activeTab === 'pipeline'}
+                <Card>
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-lg font-medium">Pipeline Definition</h2>
+                        <Button variant="primary" onclick={openPipelineEditor}>
+                            <Edit class="h-5 w-5 mr-1" />
+                            Edit Pipeline
                         </Button>
-                    {/if}
-                </div>
-            {:else}
-                <AssetGrid />
-            {/if}
-        </Card>
-
-        <!-- JOB CONFIGURATION -->
-        <Card title="Job Configuration" class="mb-6">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <h3 class="text-sm font-medium text-dark-300 mb-2">
-                        Base URL
-                    </h3>
-                    <p class="text-sm break-all bg-base-900 p-2 rounded">
-                        {job.baseUrl}
-                    </p>
-                </div>
-                <div>
-                    <h3 class="text-sm font-medium text-dark-300 mb-2">
-                        Status
-                    </h3>
-                    <p class="text-sm">{formatJobStatus(job.status)}</p>
-                </div>
-                <div>
-                    <h3 class="text-sm font-medium text-dark-300 mb-2">
-                        Last Run
-                    </h3>
-                    <p class="text-sm">
-                        {job.lastRun ? formatDate(job.lastRun) : "Never"}
-                    </p>
-                </div>
-                <div>
-                    <h3 class="text-sm font-medium text-dark-300 mb-2">
-                        Schedule
-                    </h3>
-                    <p class="text-sm">{job.schedule || "Not scheduled"}</p>
-                </div>
-            </div>
-
-            {#if job.selectors && job.selectors.length > 0}
-                <div class="mt-4 pt-4 border-t border-dark-700">
-                    <h3 class="text-sm font-medium text-dark-300 mb-2">
-                        Selectors
-                    </h3>
-                    <div class="bg-base-900 overflow-hidden rounded-lg">
-                        <table class="min-w-full divide-y divide-dark-700">
-                            <thead class="bg-base-800">
-                                <tr>
-                                    <th
-                                        scope="col"
-                                        class="px-4 py-3 text-left text-xs font-medium text-dark-300 uppercase tracking-wider"
-                                        >Name</th
-                                    >
-                                    <th
-                                        scope="col"
-                                        class="px-4 py-3 text-left text-xs font-medium text-dark-300 uppercase tracking-wider"
-                                        >Purpose</th
-                                    >
-                                    <th
-                                        scope="col"
-                                        class="px-4 py-3 text-left text-xs font-medium text-dark-300 uppercase tracking-wider"
-                                        >Type</th
-                                    >
-                                    <th
-                                        scope="col"
-                                        class="px-4 py-3 text-left text-xs font-medium text-dark-300 uppercase tracking-wider"
-                                        >Value</th
-                                    >
-                                </tr>
-                            </thead>
-                            <tbody class="bg-base-900 divide-y divide-dark-700">
-                                {#each job.selectors as selector}
-                                    <tr>
-                                        <td
-                                            class="px-4 py-2 whitespace-nowrap text-sm"
-                                            >{selector.name}</td
-                                        >
-                                        <td class="px-4 py-2 whitespace-nowrap">
-                                            <span
-                                                class={`px-2 py-0.5 inline-flex text-xs leading-5 font-medium rounded-full 
-                                                    ${
-                                                        selector.purpose ===
-                                                        "assets"
-                                                            ? "bg-blue-500 text-blue-100"
-                                                            : selector.purpose ===
-                                                                "links"
-                                                              ? "bg-green-500 text-green-100"
-                                                              : selector.purpose ===
-                                                                  "pagination"
-                                                                ? "bg-yellow-500 text-yellow-100"
-                                                                : "bg-purple-500 text-purple-100"
-                                                    }`}
-                                            >
-                                                {selector.purpose}
-                                            </span>
-                                        </td>
-                                        <td
-                                            class="px-4 py-2 whitespace-nowrap text-sm"
-                                            >{selector.type}</td
-                                        >
-                                        <td class="px-4 py-2 text-sm font-mono"
-                                            >{selector.value}</td
-                                        >
-                                    </tr>
-                                {/each}
-                            </tbody>
-                        </table>
                     </div>
-                </div>
+                    
+                    {#if !job.data?.pipeline}
+                        <div class="text-center py-12">
+                            <Blocks class="h-16 w-16 mx-auto text-dark-500 mb-4" />
+                            <h3 class="text-lg font-medium mb-2">No pipeline defined</h3>
+                            <p class="text-dark-400 mb-4">
+                                Create a pipeline to define how this job will scrape data
+                            </p>
+                            <Button variant="primary" onclick={openPipelineEditor}>
+                                <Workflow class="h-5 w-5 mr-1" />
+                                Create Pipeline
+                            </Button>
+                        </div>
+                    {:else}
+                        <div class="mb-4">
+                            {#if job.data.pipeline}
+                                {@const pipelineData = JSON.parse(job.data.pipeline)}
+                                <div class="bg-base-900 p-4 rounded-lg mb-4">
+                                    <h3 class="text-sm font-medium mb-2">Pipeline Overview</h3>
+                                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                        <div>
+                                            <p class="text-xs text-dark-400">Stages</p>
+                                            <p class="text-lg font-medium">{pipelineData.length}</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-dark-400">Tasks</p>
+                                            <p class="text-lg font-medium">
+                                                {pipelineData.reduce((total, stage) => total + stage.tasks.length, 0)}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="space-y-4">
+                                    {#each pipelineData as stage, stageIndex}
+                                        <div class="bg-base-800 border border-base-700 rounded-lg overflow-hidden">
+                                            <div class="bg-base-700 p-3">
+                                                <div class="flex items-center">
+                                                    <span class="bg-base-900 text-xs px-2 py-1 rounded-full mr-2">
+                                                        {stageIndex + 1}
+                                                    </span>
+                                                    <h3 class="font-medium">{stage.name}</h3>
+                                                    
+                                                    <span class="ml-3 px-2 py-0.5 text-xs rounded-full bg-base-900 flex items-center">
+                                                        {#if stage.parallelism.mode === 'sequential'}
+                                                            Sequential
+                                                        {:else if stage.parallelism.mode === 'parallel'}
+                                                            Parallel ({stage.parallelism.maxWorkers})
+                                                        {:else}
+                                                            Worker per item ({stage.parallelism.maxWorkers})
+                                                        {/if}
+                                                    </span>
+                                                </div>
+                                                {#if stage.description}
+                                                    <p class="text-xs text-dark-400 mt-1">{stage.description}</p>
+                                                {/if}
+                                            </div>
+                                            
+                                            <div class="p-3">
+                                                <p class="text-xs text-dark-400 mb-2">Tasks ({stage.tasks.length})</p>
+                                                {#if stage.tasks.length === 0}
+                                                    <p class="text-xs text-dark-500 italic">No tasks defined in this stage</p>
+                                                {:else}
+                                                    <div class="space-y-1">
+                                                        {#each stage.tasks as task, taskIndex}
+                                                            <div class="bg-base-900 p-2 rounded text-sm flex items-center">
+                                                                <span class="text-xs bg-base-800 rounded-full px-2 py-0.5 mr-2">
+                                                                    {taskIndex + 1}
+                                                                </span>
+                                                                <span>{task.name}</span>
+                                                                <span class="text-xs text-dark-400 ml-2">({task.type})</span>
+                                                            </div>
+                                                        {/each}
+                                                    </div>
+                                                {/if}
+                                            </div>
+                                        </div>
+                                    {/each}
+                                </div>
+                                
+                                <!-- VIEW PIPELINE JSON BUTTON -->
+                                <div class="mt-4 flex justify-end">
+                                    <Button variant="outline" size="sm" onclick={() => {
+                                        // THIS WOULD OPEN A MODAL WITH THE JSON
+                                        // FOR SIMPLICITY, WE'LL USE CONSOLE.LOG FOR NOW
+                                        console.log(job.data.pipeline);
+                                        addToast('Pipeline JSON logged to console', 'info');
+                                    }}>
+                                        <Code class="h-4 w-4 mr-1" />
+                                        View Pipeline JSON
+                                    </Button>
+                                </div>
+                            {:else}
+                                <div class="bg-base-900 p-4 rounded-lg text-center">
+                                    <p class="text-danger-400">Error parsing pipeline: {error.message}</p>
+                                    <Button variant="primary" class="mt-2" onclick={openPipelineEditor}>
+                                        Edit Pipeline
+                                    </Button>
+                                </div>
+                            {/if}
+                        </div>
+                    {/if}
+                </Card>
             {/if}
-        </Card>
+        </div>
     {/if}
 </section>
 
@@ -497,19 +681,144 @@
     <AssetViewer />
 {/if}
 
-{#if jobState.editJobModal}
-    <dialog class="modal modal-open">
-        <div class="modal-box max-w-5xl">
-            <h2 class="text-xl font-bold mb-4">Edit Job: {job?.name || 'Unnamed Job'}</h2>
-            <JobWizard
-                isEditing={true}
-                initialData={job}
-                onSuccess={handleEditSuccess}
-                onCancel={() => jobState.editJobModal = false}
-            />
+<!-- PIPELINE EDITOR MODAL -->
+{#if pipelineEditorOpen && job}
+    <div class="modal modal-open">
+        <div class="modal-box max-w-7xl w-full h-[90vh] overflow-y-auto">
+            <div class="sticky top-0 bg-base-800 py-2 z-10 flex justify-between items-center">
+                <h3 class="font-bold text-lg">Pipeline Builder - {job.name}</h3>
+                <button 
+                    onclick={() => pipelineEditorOpen = false} 
+                    class="bg-base-700 hover:bg-base-600 p-2 rounded-full"
+                    aria-label="pipelineeditormodal"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="mt-4 mb-6">
+                <JobBuilder 
+                    on:save={handleSavePipeline}
+                    initialPipeline={job.data?.pipeline}
+                    initialConfig={job.data?.jobConfig}
+                />
+            </div>
+            
+            <div class="sticky bottom-0 bg-base-800 py-3 px-4 border-t border-base-700 flex justify-end">
+                <Button 
+                    variant="outline" 
+                    onclick={() => pipelineEditorOpen = false}
+                    class="mr-2"
+                    disabled={savingPipeline}
+                >
+                    Cancel
+                </Button>
+                <Button 
+                    variant="primary" 
+                    class="save-button"
+                    onclick={() => {
+                        // TRIGGER SAVE IN THE JOBBUILDER COMPONENT
+                        const saveButton = document.querySelector('.job-builder .save-button');
+                        if (saveButton) saveButton.click();
+                    }}
+                    disabled={savingPipeline}
+                >
+                    {#if savingPipeline}
+                        <div class="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
+                        Saving...
+                    {:else}
+                        <Save class="h-5 w-5 mr-1" />
+                        Save Pipeline
+                    {/if}
+                </Button>
+            </div>
         </div>
-        <form method="dialog" class="modal-backdrop">
-            <button onclick={() => jobState.editJobModal = false}>close</button>
-        </form>
-    </dialog>
+    </div>
+{/if}
+
+<!-- EDIT BASIC INFO MODAL -->
+{#if editBasicInfoOpen && job && editingJob}
+    <div class="modal modal-open">
+        <div class="modal-box max-w-xl">
+            <h3 class="font-bold text-lg mb-4">Edit Job Details</h3>
+            
+            <div class="space-y-4">
+                <div>
+                    <label for="edit-job-name" class="block text-sm font-medium text-dark-300 mb-1">
+                        Job Name <span class="text-danger-500">*</span>
+                    </label>
+                    <input
+                        id="edit-job-name"
+                        type="text"
+                        bind:value={editingJob.name}
+                        placeholder="E.g., Product Scraper"
+                        class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    />
+                </div>
+                
+                <div>
+                    <label for="edit-base-url" class="block text-sm font-medium text-dark-300 mb-1">
+                        Base URL <span class="text-danger-500">*</span>
+                    </label>
+                    <input
+                        id="edit-base-url"
+                        type="text"
+                        bind:value={editingJob.baseUrl}
+                        placeholder="https://example.com"
+                        class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    />
+                </div>
+                
+                <div>
+                    <label for="edit-description" class="block text-sm font-medium text-dark-300 mb-1">
+                        Description
+                    </label>
+                    <textarea
+                        id="edit-description"
+                        bind:value={editingJob.description}
+                        placeholder="Describe the purpose of this job..."
+                        rows="3"
+                        class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    ></textarea>
+                </div>
+                
+                <div>
+                    <label for="edit-schedule" class="block text-sm font-medium text-dark-300 mb-1">
+                        Schedule (CRON Expression)
+                    </label>
+                    <input
+                        id="edit-schedule"
+                        type="text"
+                        bind:value={editingJob.schedule}
+                        placeholder="E.g., 0 0 * * * (daily at midnight)"
+                        class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    />
+                    <p class="text-xs text-dark-400 mt-1">
+                        Leave empty for manual execution only
+                    </p>
+                </div>
+            </div>
+            
+            <div class="flex justify-end space-x-3 mt-6">
+                <Button variant="outline" onclick={() => editBasicInfoOpen = false}>
+                    Cancel
+                </Button>
+                <Button variant="primary" onclick={handleSaveBasicInfo}>
+                    Save Changes
+                </Button>
+            </div>
+        </div>
+        <div
+            class="modal-backdrop"
+            onclick={() => editBasicInfoOpen = false}
+            onkeydown={() => {}}
+            role="button"
+            aria-label="Close modal"
+            tabindex="0"
+        >
+            <button>close</button>
+        </div>
+    </div>
 {/if}
