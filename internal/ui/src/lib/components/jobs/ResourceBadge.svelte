@@ -64,14 +64,14 @@
 
 {#if isOpen}
 <div
-  class="fixed inset-0 z-50 overflow-y-auto"
+  class="fixed overflow-y-auto"
   aria-labelledby="modal-title"
   role="dialog"
   aria-modal="true"
 >
   <!-- Background overlay -->
   <div
-      class="fixed inset-0 bg-black bg-opacity-75 transition-opacity"
+      class="fixed bg-black bg-opacity-75 transition-opacity"
       transition:fade={{ duration: 200 }}
       onclick={handleOverlayClick}
       onkeydown={() => {}}
@@ -83,7 +83,7 @@
   <!-- Modal content -->
   <div class="flex min-h-screen items-center justify-center p-4 text-center sm:p-0">
     <div
-      class="{modalSizeClass} w-full relative bg-base-800 rounded-lg shadow-xl text-left overflow-hidden transform transition-all"
+      class="{modalSizeClass()} w-full relative bg-base-800 rounded-lg shadow-xl text-left overflow-hidden transform transition-all"
       transition:fly={{ y: 20, duration: 200 }}
     >
       {#if title || showClose}

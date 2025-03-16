@@ -59,8 +59,8 @@
     <div class={`flex ${fullWidth ? 'w-full' : ''} -mb-px`}>
       {#each tabs as tab}
         <button
-          class={`${sizeClasses} ${variantClasses} font-medium transition-colors flex items-center focus-visible:ring-2 focus-visible:ring-primary-500
-                ${activeTab === tab.id ? activeClasses : ''} 
+          class={`${sizeClasses()} ${variantClasses()} font-medium transition-colors flex items-center focus-visible:ring-2 focus-visible:ring-primary-500
+                ${activeTab === tab.id ? activeClasses() : ''} 
                 ${fullWidth ? 'flex-1 justify-center' : ''}`}
           onclick={() => handleTabClick(tab.id)}
           aria-selected={activeTab === tab.id}

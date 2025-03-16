@@ -1,5 +1,5 @@
 import { addToast } from './uiStore.svelte';
-import { fetchAssets, fetchAssetDetails, deleteAsset, regenerateThumbnail } from '$lib/utils/api';
+import { assetsApi } from '$lib/utils/api';
 
 export const state = $state({
   assets: [],
@@ -26,7 +26,7 @@ export const state = $state({
   }
 });
 
-const filteredAssetsDer = $derived(() => {
+const filteredAssetsComputed = $derived(() => {
   // ENSURE ASSETS IS ALWAYS AN ARRAY
   let assetArray = Array.isArray(state.assets) ? state.assets : [];
   let result = [...assetArray];
@@ -86,13 +86,12 @@ const filteredAssetsDer = $derived(() => {
   return result;
 });
 
-export const filteredAssets = () => filteredAssetsDer();
+export const filteredAssets = () => filteredAssetsComputed;
 
-const assetsByTypeDer = $derived(() => {
+const assetsByTypeComputed = $derived(() => {
   const groups = {};
   // ENSURE ASSETS IS ALWAYS AN ARRAY
   const assetArray = Array.isArray(state.assets) ? state.assets : [];
-
   assetArray.forEach(asset => {
     const type = asset.type || 'unknown';
     if (!groups[type]) {
@@ -103,29 +102,23 @@ const assetsByTypeDer = $derived(() => {
   return groups;
 });
 
-export const assetsByType = () => assetsByTypeDer();
+export const assetsByType = () => assetsByTypeComputed;
 
 // LOAD ASSETS FROM API
 export async function loadAssets(filters = {}) {
   state.assetsLoading = true;
   try {
-    const data = await fetchAssets(filters);
-    
-    // HANDLE NEW API RESPONSE FORMAT
+    const data = await assetsApi.getAll(filters);
     if (data && data.assets) {
       state.assets = Array.isArray(data.assets) ? data.assets : [];
-      
       // UPDATE ASSET COUNTS
       if (data.counts) {
         state.assetCounts = data.counts;
       }
-    } else {
-      // FALLBACK FOR OLD FORMAT
-      state.assets = Array.isArray(data) ? data : [];
     }
-    
     return data;
   } catch (error) {
+    console.error("Error loading assets:", error);
     // SET EMPTY ARRAY ON ERROR
     state.assets = [];
     return { assets: [], counts: {} };
@@ -137,10 +130,11 @@ export async function loadAssets(filters = {}) {
 // LOAD ASSET DETAILS
 export async function loadAssetDetails(assetId) {
   try {
-    const asset = await fetchAssetDetails(assetId);
+    const asset = await assetsApi.getById(assetId);
     state.selectedAsset = asset;
     return asset;
   } catch (error) {
+    console.error("Error loading asset details:", error);
     throw error;
   }
 }
@@ -148,13 +142,12 @@ export async function loadAssetDetails(assetId) {
 // DELETE AN ASSET
 export async function removeAsset(assetId) {
   try {
-    await deleteAsset(assetId);
+    await assetsApi.delete(assetId);
     // UPDATE ASSETS STORE SAFELY
     const updatedAssets = Array.isArray(state.assets)
       ? state.assets.filter(asset => asset.id !== assetId)
       : [];
     state.assets = updatedAssets;
-
     // UPDATE COUNTS
     const asset = state.assets.find(a => a.id === assetId);
     if (asset && state.assetCounts[asset.type]) {
@@ -162,6 +155,7 @@ export async function removeAsset(assetId) {
     }
     state.assetCounts.total--;
   } catch (error) {
+    console.error("Error removing asset:", error);
     throw error;
   }
 }
@@ -169,7 +163,7 @@ export async function removeAsset(assetId) {
 // REGENERATE THUMBNAIL FOR AN ASSET
 export async function regenerateAssetThumbnail(assetId) {
   try {
-    const result = await regenerateThumbnail(assetId);
+    const result = await assetsApi.regenerateThumbnail(assetId);
     // UPDATE ASSET IN STORE SAFELY
     state.assets = Array.isArray(state.assets)
       ? state.assets.map(asset =>
@@ -178,7 +172,6 @@ export async function regenerateAssetThumbnail(assetId) {
           : asset
       )
       : [];
-
     // UPDATE SELECTED ASSET IF IT'S THE SAME ONE
     if (state.selectedAsset && state.selectedAsset.id === assetId) {
       state.selectedAsset = {
@@ -188,6 +181,7 @@ export async function regenerateAssetThumbnail(assetId) {
     }
     return result.thumbnailPath;
   } catch (error) {
+    console.error("Error regenerating thumbnail:", error);
     throw error;
   }
 }

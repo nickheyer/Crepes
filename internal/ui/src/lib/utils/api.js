@@ -1,18 +1,18 @@
-// API BASE URL - WOULD TYPICALLY COME FROM ENVIRONMENT VARIABLES
+import { addToast } from '$lib/stores/uiStore.svelte';
+
 const API_BASE_URL = '/api';
 
-// GENERIC FETCH WRAPPER WITH ERROR HANDLING
-async function apiFetch(endpoint, options = {}) {
+export async function apiRequest(endpoint, options = {}, showToasts = true) {
+  const url = `${API_BASE_URL}${endpoint}`;
+  const defaultOptions = {
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  };
+  
   try {
-    const url = `${API_BASE_URL}${endpoint}`;
-    const defaultOptions = {
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    };
     const response = await fetch(url, { ...defaultOptions, ...options });
     
-    // HANDLE NON-SUCCESS RESPONSES
     if (!response.ok) {
       let errorMessage;
       try {
@@ -24,138 +24,84 @@ async function apiFetch(endpoint, options = {}) {
       throw new Error(errorMessage);
     }
     
-    // CHECK IF RESPONSE IS EMPTY
     const contentType = response.headers.get('content-type');
     if (contentType && contentType.includes('application/json')) {
-      return await response.json();
+      const data = await response.json();
+      return data;
     }
+    
     return await response.text();
   } catch (error) {
-    console.error('API REQUEST FAILED:', error);
+    console.error('API request failed:', error.message);
+    if (showToasts) {
+      addToast(error.message, 'error');
+    }
     throw error;
   }
 }
 
-// JOB ENDPOINTS
-// FETCH ALL JOBS
-export async function fetchJobs() {
-  return apiFetch('/jobs');
-}
-
-// FETCH JOB BY ID
-export async function fetchJob(jobId) {
-  return apiFetch(`/jobs/${jobId}`);
-}
-
-// CREATE A NEW JOB
-export async function createJob(jobData) {
-  return apiFetch('/jobs', {
+// JOBS API
+export const jobsApi = {
+  getAll: () => apiRequest('/jobs'),
+  getById: (id) => apiRequest(`/jobs/${id}`),
+  create: (jobData) => apiRequest('/jobs', {
     method: 'POST',
     body: JSON.stringify(jobData),
-  });
-}
-
-// UPDATE AN EXISTING JOB
-export async function updateJob(jobId, jobData) {
-  return apiFetch(`/jobs/${jobId}`, {
+  }),
+  update: (id, jobData) => apiRequest(`/jobs/${id}`, {
     method: 'PUT',
     body: JSON.stringify(jobData),
-  });
-}
-
-// DELETE A JOB
-export async function deleteJob(jobId) {
-  return apiFetch(`/jobs/${jobId}`, {
+  }),
+  delete: (id) => apiRequest(`/jobs/${id}`, {
     method: 'DELETE',
-  });
-}
-
-// START A JOB
-export async function startJob(jobId) {
-  return apiFetch(`/jobs/${jobId}/start`, {
+  }),
+  start: (id) => apiRequest(`/jobs/${id}/start`, {
     method: 'POST',
-  });
-}
-
-// STOP A JOB
-export async function stopJob(jobId) {
-  return apiFetch(`/jobs/${jobId}/stop`, {
+  }),
+  stop: (id) => apiRequest(`/jobs/${id}/stop`, {
     method: 'POST',
-  });
-}
+  }),
+  getStatistics: (id) => apiRequest(`/jobs/${id}/statistics`),
+  getAssets: (id) => apiRequest(`/jobs/${id}/assets`),
+};
 
-// GET JOB ASSETS
-export async function fetchJobAssets(jobId) {
-  return apiFetch(`/jobs/${jobId}/assets`);
-}
-
-// GET JOB STATISTICS
-export async function fetchJobStatistics(jobId) {
-  return apiFetch(`/jobs/${jobId}/statistics`);
-}
-
-// ASSET ENDPOINTS
-// FETCH ALL ASSETS (WITH OPTIONAL FILTERS)
-export async function fetchAssets(filters = {}) {
-  // CONVERT FILTERS TO QUERY STRING
-  const queryParams = new URLSearchParams();
-  for (const [key, value] of Object.entries(filters)) {
-    if (value) {
-      queryParams.append(key, value);
+// ASSETS API
+export const assetsApi = {
+  getAll: (filters = {}) => {
+    const queryParams = new URLSearchParams();
+    for (const [key, value] of Object.entries(filters)) {
+      if (value) {
+        queryParams.append(key, value);
+      }
     }
-  }
-  const queryString = queryParams.toString();
-  const endpoint = queryString ? `/assets?${queryString}` : '/assets';
-  const result = await apiFetch(endpoint);
-  
-  // HANDLE BACKEND RESPONSE FORMAT (ASSETS ARE NOW NESTED)
-  if (result && result.assets) {
-    return result;
-  }
-  return { assets: result, counts: {} };
-}
-
-// FETCH ASSET DETAILS
-export async function fetchAssetDetails(assetId) {
-  return apiFetch(`/assets/${assetId}`);
-}
-
-// DELETE AN ASSET
-export async function deleteAsset(assetId) {
-  return apiFetch(`/assets/${assetId}`, {
+    const queryString = queryParams.toString();
+    const endpoint = queryString ? `/assets?${queryString}` : '/assets';
+    
+    return apiRequest(endpoint).then((result) => {
+      if (result && result.assets) {
+        return result;
+      }
+      return { assets: result, counts: {} };
+    });
+  },
+  getById: (id) => apiRequest(`/assets/${id}`),
+  delete: (id) => apiRequest(`/assets/${id}`, {
     method: 'DELETE',
-  });
-}
-
-// REGENERATE THUMBNAIL
-export async function regenerateThumbnail(assetId) {
-  return apiFetch(`/assets/${assetId}/regenerate-thumbnail`, {
+  }),
+  regenerateThumbnail: (id) => apiRequest(`/assets/${id}/regenerate-thumbnail`, {
     method: 'POST',
-  });
-}
+  }),
+};
 
-// SETTINGS ENDPOINTS
-// GET ALL SETTINGS
-export async function fetchSettings() {
-  return apiFetch('/settings');
-}
-
-// UPDATE SETTINGS
-export async function updateSettings(settingsData) {
-  return apiFetch('/settings', {
+// SETTINGS API
+export const settingsApi = {
+  getAll: () => apiRequest('/settings'),
+  update: (settingsData) => apiRequest('/settings', {
     method: 'PUT',
     body: JSON.stringify(settingsData),
-  });
-}
-
-// CLEAR CACHE
-export async function clearCache() {
-  return apiFetch('/cache/clear', {
+  }),
+  clearCache: () => apiRequest('/cache/clear', {
     method: 'POST',
-  });
-}
-
-// STORAGE INFO
-export async function fetchStorageInfo() {
-  return apiFetch('/storage/info');
-}
+  }),
+  getStorageInfo: () => apiRequest('/storage/info'),
+};

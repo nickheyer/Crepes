@@ -4,8 +4,8 @@
     import Button from "$lib/components/common/Button.svelte";
     import ThemeController from "$lib/components/settings/ThemeController.svelte";
     import { addToast, availableThemes } from "$lib/stores/uiStore.svelte";
-    import { fetchSettings, updateSettings, clearCache, fetchStorageInfo } from "$lib/utils/api";
-    
+    import { settingsApi } from "$lib/utils/api";
+
     const defaultSettings = {
         appConfig: {
             port: 8080,
@@ -46,9 +46,11 @@
         try {
             // FETCH SETTINGS FROM API
             try {
-                const response = await fetchSettings();
+                const response = await settingsApi.getAll();
                 if (response.success && response.data) {
                     settings = response.data;
+                } else {
+                    settings = response;
                 }
             } catch (error) {
                 console.error("ERROR LOADING SETTINGS:", error);
@@ -57,7 +59,7 @@
             
             // FETCH STORAGE INFO
             try {
-                const response = await fetchStorageInfo();
+                const response = await settingsApi.getStorageInfo();
                 if (response.success && response.data) {
                     storageInfo = response.data;
                 }
@@ -73,7 +75,7 @@
     async function saveSettings() {
         saving = true;
         try {
-            const response = await updateSettings(settings);
+            const response = await settingsApi.update(settings);
             if (response.success) {
                 addToast("SETTINGS SAVED SUCCESSFULLY", "success");
             } else {
@@ -89,7 +91,7 @@
     
     async function handleClearCache() {
         try {
-            const response = await clearCache();
+            const response = await settingsApi.clearCache();
             if (response.success) {
                 addToast("CACHE CLEARED SUCCESSFULLY", "success");
             } else {

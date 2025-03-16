@@ -1,18 +1,7 @@
 import { addToast } from './uiStore.svelte';
-import { 
-  fetchJobs, 
-  createJob, 
-  updateJob, 
-  deleteJob, 
-  startJob, 
-  stopJob, 
-  fetchJobStatistics 
-} from '$lib/utils/api';
-import { isValidUrl, isValidCron, validateField } from '$lib/utils/validation';
+import { jobsApi } from '$lib/utils/api';
 
-// THIS IS COMPLETELY OUT OF DATE. THE JOB STRUCTURE HAS ENTIRELY CHANGED WTF AM I DOING
-export const formDataBase = {
-  step: 1,
+const baseForm = {
   data: {
     name: '',
     baseUrl: '',
@@ -40,17 +29,10 @@ export const formDataBase = {
       extractText: false
     },
     tags: [],
-    visualSelections: []
+    visualSelections: [],
+    pipeline: null,
+    jobConfig: null
   },
-  stepValidity: {
-    1: false,
-    2: false, 
-    3: false,
-    4: false,
-    5: false,
-    6: true
-  },
-  // TRACK VALIDATION ERRORS
   errors: {}
 };
 
@@ -60,58 +42,68 @@ export const state = $state({
   jobsLoading: false,
   createJobModal: false,
   editJobModal: false,
-  formData: Object.assign({}, formDataBase),
+  formData: Object.assign({}, baseForm),
   updating: false
 });
 
-const runningJobsDer = $derived(
+// COMPUTED PROPERTIES FOR FILTERED JOBS
+const runningJobsFiltered = $derived(
   state.jobs.filter(job => job.status === 'running')
 );
-
-export const runningJobs = () => runningJobsDer;
-
-const completedJobsDer = $derived(
+const completedJobsFiltered = $derived(
   state.jobs.filter(job => job.status === 'completed')
 );
-
-export const completedJobs = () => completedJobsDer;
-
-const failedJobsDer = $derived(
+const failedJobsFiltered = $derived(
   state.jobs.filter(job => job.status === 'failed')
 );
 
-export const failedJobs = () => failedJobsDer;
+// EXPORT COMPUTED PROPERTIES
+export const runningJobs = () => runningJobsFiltered;
+export const completedJobs = () => completedJobsFiltered;
+export const failedJobs = () => failedJobsFiltered;
 
 // LOAD JOBS FROM API
 export async function loadJobs() {
   state.jobsLoading = true;
   try {
-    const data = await fetchJobs();
-    
-    // ENSURE PROPER DATA STRUCTURE
-    const jobArray = Array.isArray(data) ? data : [];
-    
+    const data = await jobsApi.getAll();
     // NORMALIZE JOB DATA
+    const jobArray = Array.isArray(data) ? data : [];
     const normalizedJobs = jobArray.map(job => ({
       ...job,
       // ENSURE ARRAYS AND OBJECTS
       selectors: Array.isArray(job.selectors) ? job.selectors : [],
       filters: Array.isArray(job.filters) ? job.filters : [],
       rules: job.rules || {},
-      processing: job.processing || formDataBase.data.processing,
+      processing: job.processing || state.formData.data.processing,
       tags: Array.isArray(job.tags) ? job.tags : []
     }));
-    
     state.jobs = normalizedJobs;
     return normalizedJobs;
   } catch (error) {
+    console.error("Error loading jobs:", error);
     return [];
   } finally {
     state.jobsLoading = false;
   }
 }
 
+// LOAD JOB BY ID
+export async function loadJob(jobId) {
+  state.jobsLoading = true;
+  try {
+    const job = await jobsApi.getById(jobId);
+    state.selectedJob = job;
+    return job;
+  } catch (error) {
+    addToast(`Failed to load job: ${error.message}`, 'error');
+    return null;
+  } finally {
+    state.jobsLoading = false;
+  }
+}
 
+// CREATE NEW JOB
 export async function createNewJob(jobData) {
   try {
     // ENSURE ID IS SET BY BACKEND
@@ -119,52 +111,134 @@ export async function createNewJob(jobData) {
     if (dataToSend.id) {
       delete dataToSend.id;
     }
-    
-    const newJob = await createJob(dataToSend);
+    const newJob = await jobsApi.create(dataToSend);
     state.jobs = [newJob, ...state.jobs];
     return newJob;
   } catch (error) {
+    console.error("Error creating job:", error);
     throw error;
   }
 }
 
+// UPDATE EXISTING JOB
 export async function updateExistingJob(jobId, jobData) {
   try {
-    const updatedJob = await updateJob(jobId, jobData);
-    state.jobs = state.jobs.map(job => job.id === jobId ? {...job, ...updatedJob} : job);
+    const updatedJob = await jobsApi.update(jobId, jobData);
+    state.jobs = state.jobs.map(job => 
+      job.id === jobId ? {...job, ...updatedJob} : job
+    );
+    if (state.selectedJob && state.selectedJob.id === jobId) {
+      state.selectedJob = {...state.selectedJob, ...updatedJob};
+    }
     return updatedJob;
   } catch (error) {
+    console.error("Error updating job:", error);
     throw error;
   }
 }
 
+// DELETE JOB
 export async function removeJob(jobId) {
   try {
-    await deleteJob(jobId);
+    await jobsApi.delete(jobId);
     state.jobs = state.jobs.filter(job => job.id !== jobId);
-    addToast('JOB DELETED SUCCESSFULLY', 'success');
+    if (state.selectedJob && state.selectedJob.id === jobId) {
+      state.selectedJob = null;
+    }
+    addToast('Job deleted successfully', 'success');
   } catch (error) {
-    addToast(`FAILED TO DELETE JOB: ${error.message}`, 'error');
+    addToast(`Failed to delete job: ${error.message}`, 'error');
     throw error;
   }
 }
 
+// START JOB
 export async function startJobById(jobId) {
   try {
-    await startJob(jobId);
-    state.jobs = state.jobs.map(job => job.id === jobId ? {...job, status: 'running'} : job);
+    await jobsApi.start(jobId);
+    state.jobs = state.jobs.map(job => 
+      job.id === jobId ? {...job, status: 'running'} : job
+    );
+    if (state.selectedJob && state.selectedJob.id === jobId) {
+      state.selectedJob = {...state.selectedJob, status: 'running'};
+    }
+    addToast('Job started successfully', 'success');
     return true;
   } catch (error) {
+    addToast(`Failed to start job: ${error.message}`, 'error');
     throw error;
   }
 }
 
+// STOP JOB
 export async function stopJobById(jobId) {
   try {
-    await stopJob(jobId);
-    state.jobs = state.jobs.map(job => job.id === jobId ? {...job, status: 'stopped'} : job);
+    await jobsApi.stop(jobId);
+    state.jobs = state.jobs.map(job => 
+      job.id === jobId ? {...job, status: 'stopped'} : job
+    );
+    if (state.selectedJob && state.selectedJob.id === jobId) {
+      state.selectedJob = {...state.selectedJob, status: 'stopped'};
+    }
+    addToast('Job stopped successfully', 'success');
     return true;
   } catch (error) {
+    addToast(`Failed to stop job: ${error.message}`, 'error');
     throw error;
   }
+}
+
+// UPDATE JOB PIPELINE
+export async function updateJobPipeline(jobId, pipeline, jobConfig) {
+  try {
+    state.updating = true;
+    const job = state.jobs.find(j => j.id === jobId);
+    if (!job) throw new Error('Job not found');
+    const updatedJob = {
+      ...job,
+      data: {
+        ...job.data,
+        pipeline: JSON.stringify(pipeline),
+        jobConfig: JSON.stringify(jobConfig)
+      }
+    };
+    const result = await jobsApi.update(jobId, updatedJob);
+    state.jobs = state.jobs.map(j => 
+      j.id === jobId ? {...j, ...result} : j
+    );
+    if (state.selectedJob && state.selectedJob.id === jobId) {
+      state.selectedJob = {...state.selectedJob, ...result};
+    }
+    addToast('Pipeline updated successfully', 'success');
+    return result;
+  } catch (error) {
+    addToast(`Failed to update pipeline: ${error.message}`, 'error');
+    throw error;
+  } finally {
+    state.updating = false;
+  }
+}
+
+// OPEN CREATE JOB MODAL
+export function openCreateJobModal() {
+  // RESET FORM DATA
+  state.formData = Object.assign({}, baseForm);
+  state.createJobModal = true;
+}
+
+// CLOSE CREATE JOB MODAL
+export function closeCreateJobModal() {
+  state.createJobModal = false;
+}
+
+// OPEN EDIT JOB MODAL
+export function openEditJobModal(job) {
+  state.selectedJob = job;
+  state.formData.data = {...job};
+  state.editJobModal = true;
+}
+
+// CLOSE EDIT JOB MODAL
+export function closeEditJobModal() {
+  state.editJobModal = false;
 }

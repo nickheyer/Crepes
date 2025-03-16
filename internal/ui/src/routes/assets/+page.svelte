@@ -3,6 +3,7 @@
     import AssetGrid from "$lib/components/assets/AssetGrid.svelte";
     import FilterPanel from "$lib/components/assets/FilterPanel.svelte";
     import AssetViewer from "$lib/components/assets/AssetViewer.svelte";
+    import Loading from "$lib/components/common/Loading.svelte";
     import {
         state as assetState,
         loadAssets
@@ -37,11 +38,7 @@
     </div>
 
     {#if loading}
-        <div class="py-20 flex justify-center">
-            <div
-                class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"
-            ></div>
-        </div>
+        <Loading size="lg" />
     {:else}
         <AssetGrid {view} />
     {/if}

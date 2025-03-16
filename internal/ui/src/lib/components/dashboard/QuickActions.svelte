@@ -6,9 +6,9 @@
         RefreshCw, 
         HelpCircle 
     } from "lucide-svelte";
-    import { state as jobState } from "$lib/stores/jobStore.svelte";
-    import { addToast } from "$lib/stores/uiStore.svelte";
-    
+    import { state as jobState } from "$lib/stores/jobStore.svelte.js";
+    import { addToast } from "$lib/stores/uiStore.svelte.js";
+
     // ACTION FUNCTIONS
     function openNewJobModal() {
         jobState.createJobModal = true;
@@ -20,7 +20,7 @@
     
     function refreshJobs() {
         addToast("Refreshing jobs...", "info");
-        // This would typically trigger a jobs refresh from the API
+        // TODO: ACTUALLY REFRESH JOBS
         setTimeout(() => {
             addToast("Jobs refreshed successfully", "success");
         }, 500);
@@ -39,7 +39,6 @@
         <Plus size={20} strokeWidth={2.5} />
         <span class="font-medium">Create New Job</span>
     </button>
-    
     <button 
         class="btn btn-secondary w-full flex justify-start gap-3 px-4 shadow-md hover:shadow-lg" 
         onclick={goToAssets}
@@ -47,7 +46,6 @@
         <Image size={20} strokeWidth={2.5} />
         <span class="font-medium">View Asset Gallery</span>
     </button>
-    
     <button 
         class="btn btn-info w-full flex justify-start gap-3 px-4 shadow-md hover:shadow-lg" 
         onclick={refreshJobs}
@@ -55,7 +53,6 @@
         <RefreshCw size={20} strokeWidth={2.5} />
         <span class="font-medium">Refresh Jobs</span>
     </button>
-    
     <button 
         class="btn btn-neutral w-full flex justify-start gap-3 px-4 shadow-md hover:shadow-lg" 
         onclick={viewDocumentation}

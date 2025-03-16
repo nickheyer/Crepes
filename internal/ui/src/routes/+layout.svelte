@@ -66,7 +66,7 @@
   </div>
   
   {#if uiState.toasts.length > 0}
-    <div class="toast toast-end toast-bottom z-50">
+    <div class="toast toast-end toast-bottom z-600">
       {#each uiState.toasts as toast (toast.id)}
         <Toast 
           type={toast.type} 

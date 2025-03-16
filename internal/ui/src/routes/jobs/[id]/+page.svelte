@@ -12,7 +12,7 @@
         stopJobById,
         removeJob
     } from "$lib/stores/jobStore.svelte.js";
-
+    import Loading from "$lib/components/common/Loading.svelte";
     import { 
         state as assetState,
         loadAssets, 
@@ -21,7 +21,8 @@
     } from "$lib/stores/assetStore.svelte.js";
     import AssetGrid from "$lib/components/assets/AssetGrid.svelte";
     import AssetViewer from "$lib/components/assets/AssetViewer.svelte";
-    import { fetchJobStatistics, updateJob } from "$lib/utils/api.js";
+    //import { fetchJobStatistics, updateJob } from "$lib/utils/api.js";
+    import { jobsApi } from '$lib/utils/api.js';
     import { formatDate, formatJobStatus, formatProgress } from "$lib/utils/formatters";
     import { addToast } from "$lib/stores/uiStore.svelte.js";
     import {
@@ -92,7 +93,7 @@
             
             // LOAD JOB STATISTICS 
             try {
-                const response = await fetchJobStatistics(jobId);
+                const response = await jobsApi.getStatistics(jobId);
                 if (response.success) {
                     statistics = response.data;
                 }
@@ -187,7 +188,7 @@
             };
             
             // SAVE CHANGES
-            await updateJob(updatedJob);
+            await jobsApi.update(jobId, updatedJob);
             addToast("Pipeline saved successfully", "success");
             
             // RELOAD JOB DATA
@@ -218,7 +219,7 @@
             };
             
             // SAVE CHANGES
-            await updateJob(updatedJob);
+            await jobsApi.update(jobId, updatedJob);
             addToast("Job information updated successfully", "success");
             
             // RELOAD JOB DATA
@@ -262,11 +263,7 @@
 
 <section>
     {#if loading}
-        <div class="py-20 flex justify-center">
-            <div
-                class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"
-            ></div>
-        </div>
+        <Loading size="lg" />
     {:else if !job}
         <div class="text-center py-12">
             <svg
@@ -520,11 +517,7 @@
             {#if activeTab === 'assets'}
                 <Card title="Assets">
                     {#if assetsLoading}
-                        <div class="py-20 flex justify-center">
-                            <div
-                                class="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-primary-500"
-                            ></div>
-                        </div>
+                        <Loading size="lg" />
                     {:else if filteredAssets && filteredAssets.length === 0}
                         <div class="text-center py-12">
                             <svg
@@ -685,7 +678,7 @@
 {#if pipelineEditorOpen && job}
     <div class="modal modal-open">
         <div class="modal-box max-w-7xl w-full h-[90vh] overflow-y-auto">
-            <div class="sticky top-0 bg-base-800 py-2 z-10 flex justify-between items-center">
+            <div class="bg-base-800 py-2 z-10 flex justify-between items-center">
                 <h3 class="font-bold text-lg">Pipeline Builder - {job.name}</h3>
                 <button 
                     onclick={() => pipelineEditorOpen = false} 
@@ -706,7 +699,7 @@
                 />
             </div>
             
-            <div class="sticky bottom-0 bg-base-800 py-3 px-4 border-t border-base-700 flex justify-end">
+            <div class="bg-base-800 py-3 px-4 border-t border-base-700 flex justify-end">
                 <Button 
                     variant="outline" 
                     onclick={() => pipelineEditorOpen = false}
@@ -726,8 +719,7 @@
                     disabled={savingPipeline}
                 >
                     {#if savingPipeline}
-                        <div class="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
-                        Saving...
+                        <Loading size="lg" text="Saving..."/>
                     {:else}
                         <Save class="h-5 w-5 mr-1" />
                         Save Pipeline

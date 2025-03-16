@@ -1,22 +1,7 @@
 <script>
   import { onMount } from 'svelte';
-  import {
-    DndContext,
-    DragOverlay,
-    closestCenter,
-    PointerSensor,
-    useSensors,
-    useSensor
-  } from '@dnd-kit-svelte/core';
-  import { restrictToWindowEdges } from '@dnd-kit-svelte/modifiers';
-  import {
-    SortableContext,
-    arrayMove,
-    verticalListSortingStrategy,
-    useSortable
-  } from '@dnd-kit-svelte/sortable';
+  import { dndzone } from 'svelte-dnd-action';
   import { state as jobState } from "$lib/stores/jobStore.svelte.js";
-
   // UI COMPONENTS
   import Button from "$lib/components/common/Button.svelte";
   import Card from "$lib/components/common/Card.svelte";
@@ -59,6 +44,7 @@
     Download,
     Loader2
   } from 'lucide-svelte';
+  
   // TASK REGISTRY - ORGANIZED BY CATEGORY
   const taskCategories = [
     {
@@ -148,11 +134,11 @@
       ]
     }
   ];
+  
   // LOCAL STATE
   let pipeline = $state([]);
   let selectedStage = $state(null);
   let selectedTask = $state(null);
-  let activeItem = $state(null);
   let expandedStages = $state({});
   let expandedTasks = $state({});
   let showTaskLibrary = $state(false);
@@ -161,11 +147,10 @@
   let taskConfigModalOpen = $state(false);
   let jobConfigModalOpen = $state(false);
   let viewPipelineModalOpen = $state(false);
-  let isDraggingStage = $state(false);
-  let isDraggingTask = $state(false);
   let taskSearchQuery = $state('');
   let activeTaskCategory = $state('all');
   let connectorMap = $state({});  // For visualizing task connections
+  
   // JOB CONFIGURATION
   let jobConfig = $state({
     browserSettings: {
@@ -200,6 +185,7 @@
       maxWorkers: 5
     }
   });
+  
   // STAGE TEMPLATES
   let newStage = $state({
     id: "",
@@ -210,16 +196,10 @@
     tasks: [],
     config: {}
   });
+  
   let editingStage = $state(null);
   let editingTask = $state(null);
-  // DND-KIT SETUP
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8, // 8px movement required before drag starts
-      },
-    })
-  );
+  
   onMount(() => {
     // INITIALIZE WITH DEFAULT PIPELINE OR LOAD FROM JOB
     if (jobState.formData?.data?.pipeline) {
@@ -227,7 +207,7 @@
         const parsedPipeline = JSON.parse(jobState.formData.data.pipeline);
         pipeline = parsedPipeline;
         // EXPAND ALL STAGES BY DEFAULT
-        pipeline.forEach(stage => {
+        pipeline.forEach((stage) => {
           expandedStages[stage.id] = true;
         });
       } catch (error) {
@@ -237,6 +217,7 @@
     } else {
       initializeDefaultPipeline();
     }
+    
     // INITIALIZE JOB CONFIG
     if (jobState.formData?.data?.jobConfig) {
       try {
@@ -245,9 +226,11 @@
         console.error("Failed to parse job config:", error);
       }
     }
+    
     // BUILD CONNECTION MAP FOR VISUALIZING TASK DEPENDENCIES
     buildConnectionMap();
   });
+  
   // INITIALIZE A DEFAULT PIPELINE WITH A BASIC STRUCTURE
   function initializeDefaultPipeline() {
     pipeline = [
@@ -279,32 +262,32 @@
         config: {}
       }
     ];
+    
     // EXPAND ALL STAGES BY DEFAULT
-    pipeline.forEach(stage => {
+    pipeline.forEach((stage) => {
       expandedStages[stage.id] = true;
     });
   }
+  
   // SAVE PIPELINE TO JOB
   function savePipelineToJob() {
     // CONVERT PIPELINE TO JSON STRING
     jobState.formData.data.pipeline = JSON.stringify(pipeline);
     // SAVE CONFIG AS WELL
     jobState.formData.data.jobConfig = JSON.stringify(jobConfig);
-    
     // PREPARE RESPONSE FOR CUSTOM EVENT
     const saveData = {
       pipeline,
       jobConfig
     };
-    
     // DISPATCH CUSTOM EVENT
     const event = new CustomEvent('save', {
       detail: saveData,
       bubbles: true
     });
-    
     document.dispatchEvent(event);
   }
+  
   // CREATE NEW STAGE
   function createNewStage() {
     newStage = {
@@ -318,6 +301,7 @@
     };
     newStageModalOpen = true;
   }
+  
   // ADD NEW STAGE
   function addNewStage() {
     if (!newStage.name) return;
@@ -339,6 +323,7 @@
     // UPDATE CONNECTION MAP
     buildConnectionMap();
   }
+  
   // DUPLICATE STAGE
   function duplicateStage(stageToDuplicate) {
     const newStageCopy = JSON.parse(JSON.stringify(stageToDuplicate));
@@ -356,12 +341,14 @@
     // UPDATE CONNECTION MAP
     buildConnectionMap();
   }
+  
   // EDIT STAGE
   function editStage(stage) {
     // CREATE A DEEP COPY TO AVOID DIRECT MODIFICATION
     editingStage = JSON.parse(JSON.stringify(stage));
     stageConfigModalOpen = true;
   }
+  
   // UPDATE STAGE
   function updateStage() {
     if (!editingStage || !editingStage.id) return;
@@ -375,6 +362,7 @@
     // UPDATE CONNECTION MAP
     buildConnectionMap();
   }
+  
   // DELETE STAGE
   function deleteStage(stageId) {
     if (!confirm("Are you sure you want to delete this stage?")) return;
@@ -384,14 +372,13 @@
     // UPDATE CONNECTION MAP
     buildConnectionMap();
   }
+  
   // EDIT TASK
   function editTask(stageId, task) {
     const stage = pipeline.find(s => s.id === stageId);
     if (!stage) return;
-    
     // CREATE A DEEP COPY TO AVOID DIRECT MODIFICATION
     const taskCopy = JSON.parse(JSON.stringify(task));
-    
     // ENSURE TASK HAS RETRY CONFIG
     if (!taskCopy.retryConfig) {
       taskCopy.retryConfig = {
@@ -400,7 +387,6 @@
         backoffRate: 1.5
       };
     }
-    
     // ENSURE TASK HAS CONDITION
     if (!taskCopy.condition) {
       taskCopy.condition = { 
@@ -408,26 +394,23 @@
         config: {} 
       };
     }
-    
     // ENSURE TASK HAS CONFIG
     if (!taskCopy.config) {
       taskCopy.config = {};
     }
-    
     // ENSURE TASK HAS INPUT REFS ARRAY
     if (!taskCopy.inputRefs) {
       taskCopy.inputRefs = [];
     }
-    
     // ENSURE TASK HAS OUTPUT REF
     if (!taskCopy.outputRef) {
       taskCopy.outputRef = `output_${generateId("")}`;
     }
-    
     editingTask = taskCopy;
     selectedStage = stageId;
     taskConfigModalOpen = true;
   }
+  
   // UPDATE TASK
   function updateTask() {
     if (!editingTask || !editingTask.id || !selectedStage) return;
@@ -450,6 +433,7 @@
     // UPDATE CONNECTION MAP
     buildConnectionMap();
   }
+  
   // DUPLICATE TASK
   function duplicateTask(stageId, taskToDuplicate) {
     const stage = pipeline.find(s => s.id === stageId);
@@ -470,6 +454,7 @@
     // UPDATE CONNECTION MAP
     buildConnectionMap();
   }
+  
   // DELETE TASK
   function deleteTask(stageId, taskId) {
     if (!confirm("Are you sure you want to delete this task?")) return;
@@ -485,14 +470,17 @@
     // UPDATE CONNECTION MAP
     buildConnectionMap();
   }
+  
   // TOGGLE STAGE EXPANSION
   function toggleStageExpand(stageId) {
     expandedStages[stageId] = !expandedStages[stageId];
   }
+  
   // TOGGLE TASK EXPANSION
   function toggleTaskExpand(taskId) {
     expandedTasks[taskId] = !expandedTasks[taskId];
   }
+  
   // ADD TASK FROM LIBRARY
   function addTaskFromLibrary(stageId, taskType) {
     // FIND TASK DEFINITION
@@ -533,6 +521,7 @@
     // UPDATE CONNECTION MAP
     buildConnectionMap();
   }
+  
   // GET DEFAULT CONFIG FOR TASK TYPE
   function getDefaultConfigForTaskType(taskType) {
     switch (taskType) {
@@ -609,118 +598,49 @@
         return {};
     }
   }
+  
   // GENERATE A UNIQUE ID
   function generateId(prefix = '') {
     return `${prefix}_${Math.random().toString(36).substr(2, 9)}`;
   }
+  
   // HANDLE REORDERING STAGES
-  function handleReorderStages(oldIndex, newIndex) {
-    pipeline = arrayMove(pipeline, oldIndex, newIndex);
+  function handleStageReorder(event) {
+    pipeline = event.detail.items;
     buildConnectionMap();
   }
+  
   // HANDLE REORDERING TASKS
-  function handleReorderTasks(stageId, oldIndex, newIndex) {
+  function handleTasksReorder(stageId, event) {
     pipeline = pipeline.map(stage => {
       if (stage.id === stageId) {
         return {
           ...stage,
-          tasks: arrayMove(stage.tasks, oldIndex, newIndex)
+          tasks: event.detail.items
         };
       }
       return stage;
     });
     buildConnectionMap();
   }
-  // HANDLE DND START
-  function handleDragStart(event) {
-    const { active } = event;
-    activeItem = active.id;
-    // DETERMINE IF DRAGGING STAGE OR TASK
-    isDraggingStage = active.id.startsWith('stage_');
-    isDraggingTask = active.id.startsWith('task_');
-  }
-  // HANDLE DND END
-  function handleDragEnd(event) {
-    const { active, over } = event;
-    if (over && active.id !== over.id) {
-      // IF DRAGGING STAGES
-      if (active.id.startsWith('stage_') && over.id.startsWith('stage_')) {
-        const oldIndex = pipeline.findIndex(stage => stage.id === active.id);
-        const newIndex = pipeline.findIndex(stage => stage.id === over.id);
-        if (oldIndex !== -1 && newIndex !== -1) {
-          handleReorderStages(oldIndex, newIndex);
-        }
-      }
-      // IF DRAGGING TASKS
-      if (active.id.startsWith('task_') && over.id.startsWith('task_')) {
-        // EXTRACT STAGE ID FROM DATA ATTRIBUTES
-        const activeStageId = active.data.current.sortable.containerId;
-        const overStageId = over.data.current.sortable.containerId;
-        const getTaskIndex = (stageId, taskId) => {
-          const stage = pipeline.find(s => s.id === stageId);
-          return stage ? stage.tasks.findIndex(t => t.id === taskId) : -1;
-        };
-        if (activeStageId === overStageId) {
-          // SAME STAGE REORDERING
-          const oldIndex = getTaskIndex(activeStageId, active.id);
-          const newIndex = getTaskIndex(overStageId, over.id);
-          if (oldIndex !== -1 && newIndex !== -1) {
-            handleReorderTasks(activeStageId, oldIndex, newIndex);
-          }
-        } else {
-          // MOVING BETWEEN STAGES
-          const activeStage = pipeline.find(s => s.id === activeStageId);
-          const taskIndex = getTaskIndex(activeStageId, active.id);
-          if (activeStage && taskIndex !== -1) {
-            const task = { ...activeStage.tasks[taskIndex] };
-            // REMOVE FROM ORIGINAL STAGE
-            pipeline = pipeline.map(stage => {
-              if (stage.id === activeStageId) {
-                return {
-                  ...stage,
-                  tasks: stage.tasks.filter((_, i) => i !== taskIndex)
-                };
-              }
-              return stage;
-            });
-            // ADD TO NEW STAGE
-            const overTaskIndex = getTaskIndex(overStageId, over.id);
-            pipeline = pipeline.map(stage => {
-              if (stage.id === overStageId) {
-                const newTasks = [...stage.tasks];
-                newTasks.splice(overTaskIndex + 1, 0, task);
-                return {
-                  ...stage,
-                  tasks: newTasks
-                };
-              }
-              return stage;
-            });
-            // UPDATE CONNECTION MAP
-            buildConnectionMap();
-          }
-        }
-      }
-    }
-    // RESET DRAG STATE
-    activeItem = null;
-    isDraggingStage = false;
-    isDraggingTask = false;
-  }
+  
   // OPEN JOB CONFIG MODAL
   function openJobConfig() {
     jobConfigModalOpen = true;
   }
+  
   // SAVE JOB CONFIG
   function saveJobConfig() {
     // SAVE CONFIG TO JOB
     jobState.formData.data.jobConfig = JSON.stringify(jobConfig);
     jobConfigModalOpen = false;
   }
+  
   // VIEW PIPELINE JSON
   function viewPipelineJSON() {
     viewPipelineModalOpen = true;
   }
+  
   // SAVE ALL CHANGES
   function saveAllChanges() {
     savePipelineToJob();
@@ -728,6 +648,7 @@
     jobState.formData.data.jobConfig = JSON.stringify(jobConfig);
     alert("Pipeline and configuration saved to job");
   }
+  
   // BUILD CONNECTION MAP FOR VISUALIZING TASK DEPENDENCIES
   function buildConnectionMap() {
     connectorMap = {};
@@ -770,6 +691,7 @@
       });
     });
   }
+  
   // FILTER TASKS BASED ON SEARCH AND CATEGORY
   $effect(() => {
     if (taskSearchQuery || activeTaskCategory !== 'all') {
@@ -777,6 +699,7 @@
       taskSearchQuery = '';
     }
   });
+  
   function getFilteredTaskCategories() {
     if (!taskSearchQuery && activeTaskCategory === 'all') {
       return taskCategories;
@@ -805,6 +728,7 @@
         )
       }));
   }
+  
   // GET TASK ICON COMPONENT
   function getTaskIconComponent(taskType) {
     for (const category of taskCategories) {
@@ -815,6 +739,7 @@
     }
     return null;
   }
+  
   // GET TASK COLOR BASED ON CATEGORY
   function getTaskColorClass(taskType) {
     for (const category of taskCategories) {
@@ -833,6 +758,7 @@
     }
     return 'bg-gray-700 text-white';
   }
+  
   // CHECK IF A TASK DEPENDS ON ANOTHER TASK
   function getDependencies(taskId) {
     const dependencies = [];
@@ -844,6 +770,7 @@
     });
     return dependencies;
   }
+  
   // CHECK IF A TASK IS DEPENDED ON BY OTHER TASKS
   function getDependents(taskId) {
     const dependents = [];
@@ -855,17 +782,8 @@
     });
     return dependents;
   }
-  function findTaskInfo(id) {
-      let taskInfo = null;
-      pipeline.forEach((s) => {
-          const task = s.tasks.find(t => t.id === id);
-          if (task) {
-              taskInfo = { task, stage: s };
-          }
-      });
-      return taskInfo;
-  }
 </script>
+
 <div class="job-builder">
   <div class="flex justify-between items-center mb-4">
     <h2 class="text-xl font-bold">Pipeline Builder</h2>
@@ -884,6 +802,7 @@
       </Button>
     </div>
   </div>
+  
   <div class="pipeline-container bg-base-800 rounded-lg border border-base-700 overflow-hidden">
     <div class="pipeline-header bg-base-700 p-3 flex justify-between items-center">
       <div class="flex items-center">
@@ -895,6 +814,7 @@
         Add Stage
       </Button>
     </div>
+    
     <!-- PIPELINE STAGES -->
     {#if pipeline.length === 0}
       <div class="p-8 text-center">
@@ -911,350 +831,324 @@
         </Button>
       </div>
     {:else}
-      <DndContext 
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-        modifiers={[restrictToWindowEdges]}
-        collisionDetection={closestCenter}
-        sensors={sensors}>
-        <SortableContext items={pipeline.map(s => s.id)} strategy={verticalListSortingStrategy}>
-          <div class="pipeline-stages">
-            {#each pipeline as stage, stageIndex}
-              <div class="stage-container {activeItem === stage.id ? 'border-primary-500' : ''} 
-                          relative mb-2 rounded-lg border border-base-700 overflow-hidden">
-                <!-- STAGE CONDITION INDICATOR -->
-                {#if stage.condition && stage.condition.type !== "always"}
-                  <div class="absolute top-3 right-32 px-2 py-1 text-xs bg-amber-800 rounded-full flex items-center gap-1">
-                    <Filter class="h-3 w-3" />
-                    {stage.condition.type === "never" 
-                      ? "Never Run" 
-                      : stage.condition.type === "javascript"
-                        ? "JS Condition"
-                        : "Conditional"}
-                  </div>
-                {/if}
-                <!-- STAGE HEADER -->
-                <div class="stage-header flex items-center p-3 bg-base-700 cursor-pointer relative">
-                  <!-- ORDER NUMBER -->
-                  <div class="absolute left-0 top-0 bottom-0 w-6 flex items-center justify-center bg-base-800 text-xs font-mono text-dark-300">
-                    {stageIndex + 1}
-                  </div>
-                  <div class="stage-drag-handle mr-2 cursor-grab ml-4" data-dnd-handle>
-                    <Grip class="h-4 w-4 text-dark-400" />
-                  </div>
-                  <button 
-                    class="mr-2 text-dark-300 hover:text-dark-100 focus:outline-none" 
-                    onclick={() => toggleStageExpand(stage.id)}
-                  >
-                    {#if expandedStages[stage.id]}
-                      <ChevronDown class="h-4 w-4" />
-                    {:else}
-                      <ChevronRight class="h-4 w-4" />
-                    {/if}
-                  </button>
-                  <div class="flex-1">
-                    <h3 class="font-medium text-sm">{stage.name || "Unnamed Stage"}</h3>
-                    {#if stage.description}
-                      <p class="text-xs text-dark-400">{stage.description}</p>
-                    {/if}
-                  </div>
-                  <!-- PARALLELISM MODE BADGE -->
-                  <div class="stage-parallelism px-2 py-1 text-xs bg-base-800 rounded-full flex items-center mr-2">
-                    {#if stage.parallelism && stage.parallelism.mode === "sequential"}
-                      <ArrowDownUp class="h-3 w-3 mr-1" />
-                      Sequential
-                    {:else if stage.parallelism && stage.parallelism.mode === "parallel"}
-                      <ArrowLeftRight class="h-3 w-3 mr-1" />
-                      Parallel ({stage.parallelism.maxWorkers})
-                    {:else}
-                      <ArrowLeftRight class="h-3 w-3 mr-1" />
-                      Worker-per-item ({stage.parallelism.maxWorkers})
-                    {/if}
-                  </div>
-                  <!-- TASK COUNT BADGE -->
-                  <div class="px-2 py-1 text-xs bg-base-800 rounded-full mr-2">
-                    {stage.tasks ? stage.tasks.length : 0} tasks
-                  </div>
-                  <div class="stage-actions flex space-x-1">
-                    <button 
-                      class="p-1 text-dark-300 hover:text-primary-400 focus:outline-none" 
-                      onclick={() => editStage(stage)}
-                      title="Edit Stage"
-                    >
-                      <Settings class="h-4 w-4" />
-                    </button>
-                    <button 
-                      class="p-1 text-dark-300 hover:text-primary-400 focus:outline-none" 
-                      onclick={() => duplicateStage(stage)}
-                      title="Duplicate Stage"
-                    >
-                      <Copy class="h-4 w-4" />
-                    </button>
-                    <button 
-                      class="p-1 text-dark-300 hover:text-danger-400 focus:outline-none" 
-                      onclick={() => deleteStage(stage.id)}
-                      title="Delete Stage"
-                    >
-                      <Trash class="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
+      <!-- DRAGGABLE PIPELINE STAGES -->
+      <section 
+        use:dndzone={{items: pipeline, flipDurationMs: 200}} 
+        onconsider={handleStageReorder} 
+        onfinalize={handleStageReorder}
+      >
+        {#each pipeline as stage, stageIndex (stage.id)}
+          <div class="stage-container relative mb-2 rounded-lg border border-base-700 overflow-hidden">
+            <!-- STAGE CONDITION INDICATOR -->
+            {#if stage.condition && stage.condition.type !== "always"}
+              <div class="absolute top-3 right-32 px-2 py-1 text-xs bg-amber-800 rounded-full flex items-center gap-1">
+                <Filter class="h-3 w-3" />
+                {stage.condition.type === "never" 
+                  ? "Never Run" 
+                  : stage.condition.type === "javascript"
+                    ? "JS Condition"
+                    : "Conditional"}
+              </div>
+            {/if}
+            
+            <!-- STAGE HEADER -->
+            <div class="stage-header flex items-center p-3 bg-base-700 cursor-pointer relative">
+              <!-- ORDER NUMBER -->
+              <div class="absolute left-0 top-0 bottom-0 w-6 flex items-center justify-center bg-base-800 text-xs font-mono text-dark-300">
+                {stageIndex + 1}
+              </div>
+              <div class="stage-drag-handle mr-2 cursor-grab ml-4">
+                <Grip class="h-4 w-4 text-dark-400" />
+              </div>
+              <button 
+                class="mr-2 text-dark-300 hover:text-dark-100 focus:outline-none" 
+                onclick={() => toggleStageExpand(stage.id)}
+              >
                 {#if expandedStages[stage.id]}
-                  <div class="stage-content p-3 bg-base-800">
-                    <!-- TASKS -->
-                    {#if !stage.tasks || stage.tasks.length === 0}
-                      <div class="empty-tasks p-4 text-center border border-dashed border-base-600 rounded-lg">
-                        <p class="text-dark-400 mb-2">No tasks in this stage</p>
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          onclick={() => {
-                            selectedStage = stage.id;
-                            showTaskLibrary = true;
-                          }}
-                        >
-                          <Plus class="h-4 w-4 mr-1" />
-                          Add Task
-                        </Button>
-                      </div>
-                    {:else}
-                      <SortableContext 
-                        items={stage.tasks.map(t => t.id)} 
-                        strategy={verticalListSortingStrategy} 
-                        id={stage.id}>
-                        <div class="tasks-list space-y-2">
-                          {#each stage.tasks as task, taskIndex}
-                            {@const taskIconComponent = getTaskIconComponent(task.type)}
-                            <div 
-                              class="task-item flex flex-col p-2 bg-base-700 rounded-lg hover:bg-base-650
-                                     {activeItem === task.id ? 'border-primary-500' : 'border-transparent'} border-2"
-                              data-stage-id={stage.id}
-                            >
-                              <!-- TASK HEADER -->
-                              <div class="flex items-center">
-                                <!-- ORDER NUMBER -->
-                                <div class="relative mr-2 h-6 w-6 flex items-center justify-center rounded bg-base-800 text-xs font-mono">
-                                  {taskIndex + 1}
-                                </div>
-                                <div class="task-drag-handle mr-2 cursor-grab" data-dnd-handle>
-                                  <Grip class="h-4 w-4 text-dark-400" />
-                                </div>
-                                <!-- TASK ICON AND TYPE BADGE -->
-                                <div class="task-icon mr-2 p-1 rounded {getTaskColorClass(task.type)}">
-                                  {#if taskIconComponent}
-                                    <taskIconComponent class="h-3 w-3"></taskIconComponent>
-                                  {:else}
-                                    <Settings class="h-3 w-3" />
-                                  {/if}
-                                </div>
-                                <div class="flex-1">
-                                  <p class="font-medium text-sm">{task.name || "Unnamed Task"}</p>
-                                  <p class="text-xs text-dark-400">
-                                    {task.description}
-                                  </p>
-                                </div>
-                                <!-- DEPENDENCY & OUTPUT BADGES -->
-                                <div class="flex items-center gap-1 mr-2">
-                                  {#if task.inputRefs?.length > 0}
-                                    <div class="px-2 py-0.5 text-xs bg-blue-900 rounded-full flex items-center gap-1" title="Has input dependencies">
-                                      <ArrowDownUp class="h-3 w-3" />
-                                      In: {task.inputRefs.length}
-                                    </div>
-                                  {/if}
-                                  {#if getDependents(task.id).length > 0}
-                                    <div class="px-2 py-0.5 text-xs bg-green-900 rounded-full flex items-center gap-1" title="Output used by other tasks">
-                                      <ArrowDownUp class="h-3 w-3 rotate-180" />
-                                      Out: {getDependents(task.id).length}
-                                    </div>
-                                  {/if}
-                                </div>
-                                <button 
-                                  class="p-1 mr-1 text-dark-300 hover:text-dark-100 focus:outline-none" 
-                                  onclick={() => toggleTaskExpand(task.id)}
-                                >
-                                  {#if expandedTasks[task.id]}
-                                    <ChevronDown class="h-4 w-4" />
-                                  {:else}
-                                    <ChevronRight class="h-4 w-4" />
-                                  {/if}
-                                </button>
-                                <div class="task-actions flex space-x-1">
-                                  <button 
-                                    class="p-1 text-dark-300 hover:text-primary-400 focus:outline-none" 
-                                    onclick={() => editTask(stage.id, task)}
-                                    title="Edit Task"
-                                  >
-                                    <Settings class="h-3.5 w-3.5" />
-                                  </button>
-                                  <button 
-                                    class="p-1 text-dark-300 hover:text-primary-400 focus:outline-none" 
-                                    onclick={() => duplicateTask(stage.id, task)}
-                                    title="Duplicate Task"
-                                  >
-                                    <Copy class="h-3.5 w-3.5" />
-                                  </button>
-                                  <button 
-                                    class="p-1 text-dark-300 hover:text-danger-400 focus:outline-none" 
-                                    onclick={() => deleteTask(stage.id, task.id)}
-                                    title="Delete Task"
-                                  >
-                                    <Trash class="h-3.5 w-3.5" />
-                                  </button>
-                                </div>
-                              </div>
-                              <!-- TASK EXPANDED VIEW -->
-                              {#if expandedTasks[task.id]}
-                                <div class="task-details mt-2 pt-2 border-t border-base-600">
-                                  <!-- INPUT DEPENDENCIES -->
-                                  {#if task.inputRefs?.length > 0}
-                                    <div class="mb-2">
-                                      <h4 class="text-xs font-medium mb-1">Inputs:</h4>
-                                      <div class="flex flex-wrap gap-1">
-                                        {#each task.inputRefs as inputRef}
-                                          <ResourceBadge 
-                                            type="input" 
-                                            resourceId={inputRef}
-                                            connectorMap={connectorMap} 
-                                          />
-                                        {/each}
-                                      </div>
-                                    </div>
-                                  {/if}
-                                  <!-- OUTPUT -->
-                                  {#if task.outputRef}
-                                    <div class="mb-2">
-                                      <h4 class="text-xs font-medium mb-1">Output:</h4>
-                                      <ResourceBadge 
-                                        type="output" 
-                                        resourceId={task.outputRef}
-                                        connectorMap={connectorMap} 
-                                      />
-                                    </div>
-                                  {/if}
-                                  <!-- CONFIG SUMMARY -->
-                                  {#if task.config && Object.keys(task.config).length > 0}
-                                    <div class="mb-2">
-                                      <h4 class="text-xs font-medium mb-1">Configuration:</h4>
-                                      <div class="text-xs bg-base-800 p-2 rounded max-h-32 overflow-y-auto">
-                                        {#each Object.entries(task.config) as [key, value]}
-                                          <div class="flex mb-1">
-                                            <span class="text-primary-400 mr-1">{key}:</span>
-                                            <span class="text-dark-300">
-                                              {typeof value === 'object' ? JSON.stringify(value) : value}
-                                            </span>
-                                          </div>
-                                        {/each}
-                                      </div>
-                                    </div>
-                                  {/if}
-                                  <!-- CONDITION -->
-                                  {#if task.condition && task.condition.type !== "always"}
-                                    <div class="mb-2">
-                                      <h4 class="text-xs font-medium mb-1 flex items-center">
-                                        <Filter class="h-3 w-3 mr-1" />
-                                        Condition:
-                                      </h4>
-                                      <div class="text-xs px-2 py-1 bg-amber-900/30 rounded-md">
-                                        {task.condition.type === "never" 
-                                          ? "Never executed" 
-                                          : task.condition.type === "javascript"
-                                            ? "JavaScript condition"
-                                            : "Comparison condition"}
-                                      </div>
-                                    </div>
-                                  {/if}
-                                  <!-- RETRY CONFIG -->
-                                  {#if task.retryConfig && task.retryConfig.maxRetries > 0}
-                                    <div>
-                                      <h4 class="text-xs font-medium mb-1 flex items-center">
-                                        <RefreshCw class="h-3 w-3 mr-1" />
-                                        Retry:
-                                      </h4>
-                                      <div class="text-xs">
-                                        Max: {task.retryConfig.maxRetries}, 
-                                        Delay: {task.retryConfig.delayMS}ms, 
-                                        Backoff: {task.retryConfig.backoffRate}x
-                                      </div>
-                                    </div>
-                                  {/if}
-                                </div>
-                              {/if}
-                            </div>
-                          {/each}
-                        </div>
-                      </SortableContext>
-                      <!-- PARALLEL EXECUTION VISUALIZATION -->
-                      {#if stage.parallelism && stage.parallelism.mode !== "sequential" && stage.tasks.length > 0}
-                        <WorkerAllocation 
-                          mode={stage.parallelism.mode} 
-                          maxWorkers={stage.parallelism.maxWorkers}
-                          tasks={stage.tasks}
-                          connectorMap={connectorMap}
-                        />
-                      {/if}
-                    {/if}
-                    <!-- ADD TASK BUTTON -->
-                    <div class="mt-3 text-center">
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onclick={() => {
-                          selectedStage = stage.id;
-                          showTaskLibrary = true;
-                        }}
-                      >
-                        <Plus class="h-4 w-4 mr-1" />
-                        Add Task
-                      </Button>
-                    </div>
-                  </div>
+                  <ChevronDown class="h-4 w-4" />
+                {:else}
+                  <ChevronRight class="h-4 w-4" />
+                {/if}
+              </button>
+              <div class="flex-1">
+                <h3 class="font-medium text-sm">{stage.name || "Unnamed Stage"}</h3>
+                {#if stage.description}
+                  <p class="text-xs text-dark-400">{stage.description}</p>
                 {/if}
               </div>
-            {/each}
-          </div>
-        </SortableContext>
-        <!-- DRAG OVERLAY -->
-        <DragOverlay adjustScale={true} dropAnimation={{ duration: 200, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
-          {#if activeItem && isDraggingStage}
-            <div class="drag-preview bg-base-700 opacity-80 p-3 rounded-lg border-2 border-primary-500 shadow-lg w-full max-w-sm">
-              <div class="flex items-center">
-                <Blocks class="h-4 w-4 mr-2" />
-                <span class="font-medium text-sm">
-                  {pipeline.find(s => s.id === activeItem)?.name || "Stage"}
-                </span>
+              
+              <!-- PARALLELISM MODE BADGE -->
+              <div class="stage-parallelism px-2 py-1 text-xs bg-base-800 rounded-full flex items-center mr-2">
+                {#if stage.parallelism && stage.parallelism.mode === "sequential"}
+                  <ArrowDownUp class="h-3 w-3 mr-1" />
+                  Sequential
+                {:else if stage.parallelism && stage.parallelism.mode === "parallel"}
+                  <ArrowLeftRight class="h-3 w-3 mr-1" />
+                  Parallel ({stage.parallelism.maxWorkers})
+                {:else}
+                  <ArrowLeftRight class="h-3 w-3 mr-1" />
+                  Worker-per-item ({stage.parallelism.maxWorkers})
+                {/if}
+              </div>
+              
+              <!-- TASK COUNT BADGE -->
+              <div class="px-2 py-1 text-xs bg-base-800 rounded-full mr-2">
+                {stage.tasks ? stage.tasks.length : 0} tasks
+              </div>
+              
+              <div class="stage-actions flex space-x-1">
+                <button 
+                  class="p-1 text-dark-300 hover:text-primary-400 focus:outline-none" 
+                  onclick={() => editStage(stage)}
+                  title="Edit Stage"
+                >
+                  <Settings class="h-4 w-4" />
+                </button>
+                <button 
+                  class="p-1 text-dark-300 hover:text-primary-400 focus:outline-none" 
+                  onclick={() => duplicateStage(stage)}
+                  title="Duplicate Stage"
+                >
+                  <Copy class="h-4 w-4" />
+                </button>
+                <button 
+                  class="p-1 text-dark-300 hover:text-danger-400 focus:outline-none" 
+                  onclick={() => deleteStage(stage.id)}
+                  title="Delete Stage"
+                >
+                  <Trash class="h-4 w-4" />
+                </button>
               </div>
             </div>
-          {/if}
-          {#if activeItem && isDraggingTask}
-            {@const draggedTask = (() => {
-              let foundTask = null;
-              pipeline.forEach(s => {
-                const task = s.tasks.find(t => t.id === activeItem);
-                if (task) foundTask = { task, stage: s };
-              });
-              return foundTask;
-            })()}
-            <div class="drag-preview bg-base-700 opacity-80 p-3 rounded-lg border-2 border-primary-500 shadow-lg w-full max-w-xs">
-              {#if draggedTask}
-                  {@const draggedIconComponent = getTaskIconComponent(draggedTask.task.type)}
-                  <div class="flex items-center">
-                  <div class="task-icon mr-2 p-1 rounded {getTaskColorClass(draggedTask.task.type)}">
-                      {#if draggedIconComponent}
-                        <draggedIconComponent class="h-3 w-3"></draggedIconComponent>
-                      {:else}
-                        <Settings class="h-3 w-3" />
-                      {/if}
+            
+            {#if expandedStages[stage.id]}
+              <div class="stage-content p-3 bg-base-800">
+                <!-- TASKS -->
+                {#if !stage.tasks || stage.tasks.length === 0}
+                  <div class="empty-tasks p-4 text-center border border-dashed border-base-600 rounded-lg">
+                    <p class="text-dark-400 mb-2">No tasks in this stage</p>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onclick={() => {
+                        selectedStage = stage.id;
+                        showTaskLibrary = true;
+                      }}
+                    >
+                      <Plus class="h-4 w-4 mr-1" />
+                      Add Task
+                    </Button>
                   </div>
-                  <span class="font-medium text-sm">{draggedTask.task.name}</span>
+                {:else}
+                  <!-- DRAGGABLE TASKS -->
+                  <div
+                    class="tasks-list space-y-2"
+                    use:dndzone={{items: stage.tasks, flipDurationMs: 200}} 
+                    onconsider={(e) => handleTasksReorder(stage.id, e)} 
+                    onfinalize={(e) => handleTasksReorder(stage.id, e)}
+                  >
+                    {#each stage.tasks as task, taskIndex (task.id)}
+                      {@const taskIconComponent = getTaskIconComponent(task.type)}
+                      <div 
+                        class="task-item flex flex-col p-2 bg-base-700 rounded-lg hover:bg-base-650 border-2 border-transparent"
+                      >
+                        <!-- TASK HEADER -->
+                        <div class="flex items-center">
+                          <!-- ORDER NUMBER -->
+                          <div class="relative mr-2 h-6 w-6 flex items-center justify-center rounded bg-base-800 text-xs font-mono">
+                            {taskIndex + 1}
+                          </div>
+                          <div class="task-drag-handle mr-2 cursor-grab">
+                            <Grip class="h-4 w-4 text-dark-400" />
+                          </div>
+                          
+                          <!-- TASK ICON AND TYPE BADGE -->
+                          <div class="task-icon mr-2 p-1 rounded {getTaskColorClass(task.type)}">
+                            {#if taskIconComponent}
+                              <taskIconComponent class="h-3 w-3"></taskIconComponent>
+                            {:else}
+                              <Settings class="h-3 w-3" />
+                            {/if}
+                          </div>
+                          
+                          <div class="flex-1">
+                            <p class="font-medium text-sm">{task.name || "Unnamed Task"}</p>
+                            <p class="text-xs text-dark-400">
+                              {task.description}
+                            </p>
+                          </div>
+                          
+                          <!-- DEPENDENCY & OUTPUT BADGES -->
+                          <div class="flex items-center gap-1 mr-2">
+                            {#if task.inputRefs?.length > 0}
+                              <div class="px-2 py-0.5 text-xs bg-blue-900 rounded-full flex items-center gap-1" title="Has input dependencies">
+                                <ArrowDownUp class="h-3 w-3" />
+                                In: {task.inputRefs.length}
+                              </div>
+                            {/if}
+                            {#if getDependents(task.id).length > 0}
+                              <div class="px-2 py-0.5 text-xs bg-green-900 rounded-full flex items-center gap-1" title="Output used by other tasks">
+                                <ArrowDownUp class="h-3 w-3 rotate-180" />
+                                Out: {getDependents(task.id).length}
+                              </div>
+                            {/if}
+                          </div>
+                          
+                          <button 
+                            class="p-1 mr-1 text-dark-300 hover:text-dark-100 focus:outline-none" 
+                            onclick={() => toggleTaskExpand(task.id)}
+                          >
+                            {#if expandedTasks[task.id]}
+                              <ChevronDown class="h-4 w-4" />
+                            {:else}
+                              <ChevronRight class="h-4 w-4" />
+                            {/if}
+                          </button>
+                          
+                          <div class="task-actions flex space-x-1">
+                            <button 
+                              class="p-1 text-dark-300 hover:text-primary-400 focus:outline-none" 
+                              onclick={() => editTask(stage.id, task)}
+                              title="Edit Task"
+                            >
+                              <Settings class="h-3.5 w-3.5" />
+                            </button>
+                            <button 
+                              class="p-1 text-dark-300 hover:text-primary-400 focus:outline-none" 
+                              onclick={() => duplicateTask(stage.id, task)}
+                              title="Duplicate Task"
+                            >
+                              <Copy class="h-3.5 w-3.5" />
+                            </button>
+                            <button 
+                              class="p-1 text-dark-300 hover:text-danger-400 focus:outline-none" 
+                              onclick={() => deleteTask(stage.id, task.id)}
+                              title="Delete Task"
+                            >
+                              <Trash class="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                        
+                        <!-- TASK EXPANDED VIEW -->
+                        {#if expandedTasks[task.id]}
+                          <div class="task-details mt-2 pt-2 border-t border-base-600">
+                            <!-- INPUT DEPENDENCIES -->
+                            {#if task.inputRefs?.length > 0}
+                              <div class="mb-2">
+                                <h4 class="text-xs font-medium mb-1">Inputs:</h4>
+                                <div class="flex flex-wrap gap-1">
+                                  {#each task.inputRefs as inputRef}
+                                    <ResourceBadge 
+                                      type="input" 
+                                      resourceId={inputRef}
+                                      connectorMap={connectorMap} 
+                                    />
+                                  {/each}
+                                </div>
+                              </div>
+                            {/if}
+                            
+                            <!-- OUTPUT -->
+                            {#if task.outputRef}
+                              <div class="mb-2">
+                                <h4 class="text-xs font-medium mb-1">Output:</h4>
+                                <ResourceBadge 
+                                  type="output" 
+                                  resourceId={task.outputRef}
+                                  connectorMap={connectorMap} 
+                                />
+                              </div>
+                            {/if}
+                            
+                            <!-- CONFIG SUMMARY -->
+                            {#if task.config && Object.keys(task.config).length > 0}
+                              <div class="mb-2">
+                                <h4 class="text-xs font-medium mb-1">Configuration:</h4>
+                                <div class="text-xs bg-base-800 p-2 rounded max-h-32 overflow-y-auto">
+                                  {#each Object.entries(task.config) as [key, value]}
+                                    <div class="flex mb-1">
+                                      <span class="text-primary-400 mr-1">{key}:</span>
+                                      <span class="text-dark-300">
+                                        {typeof value === 'object' ? JSON.stringify(value) : value}
+                                      </span>
+                                    </div>
+                                  {/each}
+                                </div>
+                              </div>
+                            {/if}
+                            
+                            <!-- CONDITION -->
+                            {#if task.condition && task.condition.type !== "always"}
+                              <div class="mb-2">
+                                <h4 class="text-xs font-medium mb-1 flex items-center">
+                                  <Filter class="h-3 w-3 mr-1" />
+                                  Condition:
+                                </h4>
+                                <div class="text-xs px-2 py-1 bg-amber-900/30 rounded-md">
+                                  {task.condition.type === "never" 
+                                    ? "Never executed" 
+                                    : task.condition.type === "javascript"
+                                      ? "JavaScript condition"
+                                      : "Comparison condition"}
+                                </div>
+                              </div>
+                            {/if}
+                            
+                            <!-- RETRY CONFIG -->
+                            {#if task.retryConfig && task.retryConfig.maxRetries > 0}
+                              <div>
+                                <h4 class="text-xs font-medium mb-1 flex items-center">
+                                  <RefreshCw class="h-3 w-3 mr-1" />
+                                  Retry:
+                                </h4>
+                                <div class="text-xs">
+                                  Max: {task.retryConfig.maxRetries}, 
+                                  Delay: {task.retryConfig.delayMS}ms, 
+                                  Backoff: {task.retryConfig.backoffRate}x
+                                </div>
+                              </div>
+                            {/if}
+                          </div>
+                        {/if}
+                      </div>
+                    {/each}
                   </div>
-              {/if}
+                  
+                  <!-- PARALLEL EXECUTION VISUALIZATION -->
+                  {#if stage.parallelism && stage.parallelism.mode !== "sequential" && stage.tasks.length > 0}
+                    <WorkerAllocation 
+                      mode={stage.parallelism.mode} 
+                      maxWorkers={stage.parallelism.maxWorkers}
+                      tasks={stage.tasks}
+                      connectorMap={connectorMap}
+                    />
+                  {/if}
+                {/if}
+                
+                <!-- ADD TASK BUTTON -->
+                <div class="mt-3 text-center">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onclick={() => {
+                      selectedStage = stage.id;
+                      showTaskLibrary = true;
+                    }}
+                  >
+                    <Plus class="h-4 w-4 mr-1" />
+                    Add Task
+                  </Button>
+                </div>
+              </div>
+            {/if}
           </div>
-        {/if}
-        </DragOverlay>
-      </DndContext>
+        {/each}
+      </section>
     {/if}
   </div>
 </div>
+
 <!-- TASK LIBRARY MODAL -->
 {#if showTaskLibrary}
   <Modal 
@@ -1284,6 +1178,7 @@
         </select>
       </div>
     </div>
+    
     <div class="task-library-content max-h-[60vh] overflow-y-auto pr-2 space-y-4">
       {#each getFilteredTaskCategories() as category}
         <div class="task-category">
@@ -1311,6 +1206,7 @@
         </div>
       {/each}
     </div>
+    
     <div slot="footer" class="flex justify-end">
       <Button variant="outline" onclick={() => showTaskLibrary = false}>
         Close
@@ -1318,6 +1214,7 @@
     </div>
   </Modal>
 {/if}
+
 <!-- NEW STAGE MODAL -->
 {#if newStageModalOpen}
   <Modal 
@@ -1393,25 +1290,22 @@
     </div>
   </Modal>
 {/if}
-<!-- STAGE CONFIG MODAL -->
-{#if stageConfigModalOpen && editingStage}
-  <StageConfig 
-    stage={editingStage} 
-    isOpen={stageConfigModalOpen} 
-    onclose={() => stageConfigModalOpen = false}
-    onsave={updateStage}
-  />
-{/if}
-<!-- TASK CONFIG MODAL -->
-{#if taskConfigModalOpen && editingTask}
-  <TaskConfig 
-    task={editingTask} 
-    allTasks={pipeline.flatMap(stage => stage.tasks)}
-    isOpen={taskConfigModalOpen} 
-    onclose={() => taskConfigModalOpen = false}
-    onsave={updateTask}
-  />
-{/if}
+
+<StageConfig 
+  stage={editingStage} 
+  isOpen={stageConfigModalOpen}
+  onclose={() => stageConfigModalOpen = false}
+  onsave={updateStage}
+/>
+
+<TaskConfig 
+  task={editingTask} 
+  allTasks={pipeline.flatMap(stage => stage.tasks)}
+  isOpen={taskConfigModalOpen} 
+  onclose={() => taskConfigModalOpen = false}
+  onsave={updateTask}
+/>
+
 <!-- JOB CONFIG MODAL -->
 {#if jobConfigModalOpen}
   <Modal 
@@ -1537,6 +1431,7 @@
           </div>
         </div>
       </div>
+      
       <div data-tab="scraper" class="space-y-4">
         <h3 class="text-lg font-medium mb-2">Scraper Settings</h3>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1630,6 +1525,7 @@
           </div>
         </div>
       </div>
+      
       <div data-tab="rate" class="space-y-4">
         <h3 class="text-lg font-medium mb-2">Rate Limiting</h3>
         <div>
@@ -1693,6 +1589,7 @@
           </div>
         </div>
       </div>
+      
       <div data-tab="resources" class="space-y-4">
         <h3 class="text-lg font-medium mb-2">Resource Allocation</h3>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1749,6 +1646,7 @@
     </Tabs>
   </Modal>
 {/if}
+
 <!-- VIEW PIPELINE JSON MODAL -->
 {#if viewPipelineModalOpen}
   <Modal 
@@ -1780,13 +1678,8 @@
     </div>
   </Modal>
 {/if}
+
 <style>
-  .task-item {
-    transition: all 0.2s ease;
-  }
-  .task-item:hover {
-    transform: translateY(-1px);
-  }
   .pipeline-stages {
     padding: 1rem;
   }

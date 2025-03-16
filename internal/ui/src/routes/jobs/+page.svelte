@@ -8,28 +8,22 @@
       loadJobs,
       startJobById,
       stopJobById,
-      removeJob
+      removeJob,
+      openCreateJobModal
   } from "$lib/stores/jobStore.svelte.js";
   import Card from '$lib/components/common/Card.svelte';
   import Button from '$lib/components/common/Button.svelte';
-  import JobBuilder from '$lib/components/jobs/JobBuilder.svelte';
+  import JobBuilderModal from '$lib/components/jobs/JobBuilderModal.svelte';
   import { formatDate, formatRelativeTime } from '$lib/utils/formatters';
   import { addToast } from '$lib/stores/uiStore.svelte.js';
-  import { createJob, updateJob } from '$lib/utils/api.js';
+  import { jobsApi } from '$lib/utils/api.js';
+  import Loading from "$lib/components/common/Loading.svelte";
   
   // LOCAL STATE
   let loading = $state(true);
   let jobFilter = $state('');
   let statusFilter = $state('');
   let confirmingDelete = $state(null);
-  let newJobModalOpen = $state(false);
-  let newJob = $state({
-    name: '',
-    baseUrl: '',
-    description: '',
-    schedule: '',
-    data: {}
-  });
   
   // LOAD JOBS ON MOUNT
   onMount(async () => {
@@ -42,20 +36,18 @@
     }
   });
   
-  // OPEN NEW JOB MODAL
-  function openNewJobModal() {
-    // RESET NEW JOB OBJECT
-    newJob = {
-      name: '',
-      baseUrl: '',
-      description: '',
-      schedule: '',
-      data: {
-        pipeline: null,
-        jobConfig: null
-      }
-    };
-    newJobModalOpen = true;
+  // HANDLE JOB MODAL
+  function handleOpenNewJobModal() {
+    jobState.createJobModal = true;
+  }
+  
+  function handleCloseModal() {
+    jobState.createJobModal = false;
+  }
+  
+  async function handleJobCreated(newJob) {
+    await loadJobs();
+    jobState.createJobModal = false;
   }
   
   // HANDLE JOB ACTIONS
@@ -98,45 +90,14 @@
     confirmingDelete = null;
   }
   
-  async function handleSaveNewJob() {
-    if (!newJob.name || !newJob.baseUrl) {
-      addToast('Name and Base URL are required', 'error');
-      return;
-    }
-    
-    try {
-      const response = await createJob(newJob);
-      newJobModalOpen = false;
-      await loadJobs();
-      addToast('Job created successfully', 'success');
-    } catch (error) {
-      console.error('Error creating job:', error);
-      addToast(`Failed to create job: ${error.message}`, 'error');
-    }
-  }
-  
-  function handleJobBuilderSave(event) {
-    // GET THE PIPELINE AND CONFIG FROM THE BUILDER
-    const { pipeline, jobConfig } = event.detail;
-    
-    // UPDATE THE NEW JOB OBJECT
-    newJob.data = {
-      ...newJob.data,
-      pipeline: JSON.stringify(pipeline),
-      jobConfig: JSON.stringify(jobConfig)
-    };
-  }
-  
   // FILTER JOBS
   let filteredJobs = $derived(jobState.jobs.filter((job) => {
       // SEARCH
       const searchMatch = (!jobFilter || jobFilter.length === 0) || 
                             (job.name && job.name.toLowerCase().includes(jobFilter.toLowerCase())) || 
                             job.baseUrl.toLowerCase().includes(jobFilter.toLowerCase());
-      
       // STATUS
       const statusMatch = (!statusFilter || statusFilter.length === 0) || job.status === statusFilter;
-      
       return searchMatch && statusMatch;
   }));
 </script>
@@ -151,8 +112,7 @@
       <h1 class="text-2xl font-bold mb-2">Jobs</h1>
       <p class="text-dark-300">Manage your scraping jobs</p>
     </div>
-    
-    <Button variant="primary" onclick={openNewJobModal}>
+    <Button variant="primary" onclick={handleOpenNewJobModal}>
       <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
         <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
       </svg>
@@ -180,7 +140,6 @@
           />
         </div>
       </div>
-      
       <div class="w-full md:w-auto">
         <select
             id="status-filter"
@@ -199,9 +158,7 @@
   </Card>
   
   {#if loading}
-    <div class="py-20 flex justify-center">
-      <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
-    </div>
+    <Loading size="lg" />
   {:else if jobState.jobs.length === 0}
     <Card class="text-center py-12">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mx-auto text-dark-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -209,7 +166,7 @@
       </svg>
       <h3 class="text-lg font-medium mb-2">No jobs found</h3>
       <p class="text-dark-400 mb-4">Start by creating your first job</p>
-      <Button variant="primary" onclick={openNewJobModal}>Create New Job</Button>
+      <Button variant="primary" onclick={handleOpenNewJobModal}>Create New Job</Button>
     </Card>
   {:else if filteredJobs.length === 0}
     <Card class="text-center py-12">
@@ -238,7 +195,6 @@
                     {job.status || 'idle'}
                   </span>
                 </div>
-                
                 <div class="flex-1">
                   <h3 class="font-medium">
                     <a href={`/jobs/${job.id}`} class="hover:text-primary-400">
@@ -248,7 +204,6 @@
                   <p class="text-sm text-dark-300 truncate">{job.baseUrl}</p>
                 </div>
               </div>
-              
               <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-y-2 gap-x-4 mt-3">
                 <div>
                   <p class="text-xs text-dark-400">Last Run</p>
@@ -262,7 +217,6 @@
                   <p class="text-xs text-dark-400">Assets</p>
                   <p class="text-sm">{job.assets?.length || 0}</p>
                 </div>
-                
                 {#if job.data?.pipeline}
                   <div>
                     <p class="text-xs text-dark-400">Pipeline</p>
@@ -278,7 +232,6 @@
                 {/if}
               </div>
             </div>
-            
             <div class="flex flex-wrap gap-2">
               {#if job.status === 'running'}
                 <Button 
@@ -303,7 +256,6 @@
                   Start
                 </Button>
               {/if}
-              
               <Button 
                 variant="primary" 
                 size="sm" 
@@ -315,7 +267,6 @@
                 </svg>
                 View
               </Button>
-              
               {#if confirmingDelete === job.id}
                 <div class="flex items-center space-x-2">
                   <span class="text-sm text-danger-400">Confirm?</span>
@@ -355,108 +306,8 @@
 </section>
 
 <!-- CREATE NEW JOB MODAL -->
-{#if newJobModalOpen}
-  <div class="modal modal-open">
-    <div class="modal-box max-w-7xl w-full h-[90vh] overflow-y-auto">
-      <div class="sticky top-0 bg-base-800 py-2 z-10 flex justify-between items-center">
-        <h3 class="font-bold text-lg">Create New Job</h3>
-        <button 
-          onclick={() => newJobModalOpen = false} 
-          class="bg-base-700 hover:bg-base-600 p-2 rounded-full"
-          aria-label="newjobmodalcreate"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-      
-      <div class="space-y-6 mt-4">
-        <!-- BASIC INFO SECTION -->
-        <Card title="Basic Information">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label for="job-name" class="block text-sm font-medium text-dark-300 mb-1">
-                Job Name <span class="text-danger-500">*</span>
-              </label>
-              <input
-                id="job-name"
-                type="text"
-                bind:value={newJob.name}
-                placeholder="E.g., Product Scraper"
-                class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              />
-            </div>
-            
-            <div>
-              <label for="base-url" class="block text-sm font-medium text-dark-300 mb-1">
-                Base URL <span class="text-danger-500">*</span>
-              </label>
-              <input
-                id="base-url"
-                type="text"
-                bind:value={newJob.baseUrl}
-                placeholder="https://example.com"
-                class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              />
-            </div>
-            
-            <div class="md:col-span-2">
-              <label for="description" class="block text-sm font-medium text-dark-300 mb-1">
-                Description
-              </label>
-              <textarea
-                id="description"
-                bind:value={newJob.description}
-                placeholder="Describe the purpose of this job..."
-                rows="3"
-                class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              ></textarea>
-            </div>
-            
-            <div>
-              <label for="schedule" class="block text-sm font-medium text-dark-300 mb-1">
-                Schedule (CRON Expression)
-              </label>
-              <input
-                id="schedule"
-                type="text"
-                bind:value={newJob.schedule}
-                placeholder="E.g., 0 0 * * * (daily at midnight)"
-                class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              />
-              <p class="text-xs text-dark-400 mt-1">
-                Leave empty for manual execution only
-              </p>
-            </div>
-          </div>
-        </Card>
-        
-        <!-- PIPELINE BUILDER SECTION -->
-        <Card title="Pipeline Builder">
-          <JobBuilder on:save={handleJobBuilderSave} />
-        </Card>
-        
-        <!-- ACTIONS -->
-        <div class="flex justify-end space-x-3">
-          <Button variant="outline" onclick={() => newJobModalOpen = false}>
-            Cancel
-          </Button>
-          <Button variant="primary" onclick={handleSaveNewJob}>
-            Create Job
-          </Button>
-        </div>
-      </div>
-    </div>
-    <div
-      class="modal-backdrop"
-      onclick={() => newJobModalOpen = false}
-      onkeydown={() => {}}
-      role="button"
-      aria-label="Close modal"
-      tabindex="0"
-    >
-      <button>close</button>
-    </div>
-  </div>
-{/if}
+<JobBuilderModal 
+  isOpen={jobState.createJobModal} 
+  onClose={handleCloseModal}
+  onJobCreated={handleJobCreated}
+/>

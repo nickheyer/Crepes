@@ -72,7 +72,6 @@ export async function initTheme() {
   
   // ATTEMPT TO LOAD THEME FROM LOCAL STORAGE
   const savedTheme = localStorage.getItem('theme');
-
   if (savedTheme) {
     // USE SAVED THEME IF AVAILABLE
     applyTheme(savedTheme);
@@ -90,7 +89,7 @@ export async function initTheme() {
         }
       }
     } catch (error) {
-      console.error('FAILED TO LOAD THEME FROM API:', error);
+      console.error('Failed to load theme from API:', error);
       // FALLBACK TO DEFAULT THEME
       applyTheme('default');
     }

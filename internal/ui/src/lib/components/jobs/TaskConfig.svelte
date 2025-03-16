@@ -1,8 +1,5 @@
 <script>
-  import { onMount} from 'svelte';
   import Button from "$lib/components/common/Button.svelte";
-  import Modal from "$lib/components/common/Modal.svelte";
-  import Tabs from "$lib/components/common/Tabs.svelte";
   import ConditionBuilder from "./ConditionBuilder.svelte";
   import {
     ChevronDown,
@@ -10,18 +7,19 @@
     RefreshCw,
     ArrowRight,
     ArrowLeft,
-    Settings
+    Settings,
+    Grip
   } from 'lucide-svelte';
-  
-  // PROPS
+
+  // PROPS USING SVELTE 5 RUNES
   let {
-      task = null,
-      allTasks = [],
-      isOpen = false,
-      onclose = () => {},
-      onsave = () => {}
+    task = null,
+    allTasks = [],
+    isOpen = false,
+    onclose = () => {},
+    onsave = () => {}
   } = $props();
-  
+
   // LOCAL STATE
   let editingTask = $state({});
   let selectedTab = $state('config');
@@ -34,32 +32,51 @@
   // INPUT FIELD VALIDATION
   let fieldValidation = $state({});
   let requiredFields = $state([]);
-  
-  // HANDLE CLOSE
-  function handleClose() {
-    onclose();
-  }
-  
-  // HANDLE SAVE
-  function handleSave() {
-    // VALIDATE REQUIRED FIELDS
-    let valid = true;
-    let newValidation = {};
-    requiredFields.forEach(field => {
-      if (!editingTask.config[field] || editingTask.config[field] === '') {
-        newValidation[field] = 'This field is required';
-        valid = false;
+
+  // INITIALIZE
+  $effect(() => {
+    if (isOpen && task) {
+      // CREATE A DEEP COPY TO AVOID DIRECT MODIFICATION
+      try {
+        editingTask = JSON.parse(JSON.stringify(task));
+      } catch (e) {
+        console.error("Error cloning task:", e);
+        editingTask = { ...task };
       }
-    });
-    
-    if (!valid) {
-      fieldValidation = newValidation;
-      return;
+      
+      // ENSURE CONFIG EXISTS
+      if (!editingTask.config) {
+        editingTask.config = {};
+      }
+      
+      // ENSURE INPUT REFS ARRAY EXISTS
+      if (!editingTask.inputRefs) {
+        editingTask.inputRefs = [];
+      }
+      
+      // ENSURE OUTPUT REF EXISTS
+      if (!editingTask.outputRef) {
+        editingTask.outputRef = `output_${Math.random().toString(36).substr(2, 9)}`;
+      }
+      
+      // ENSURE CONDITION EXISTS
+      if (!editingTask.condition) {
+        editingTask.condition = { type: "always", config: {} };
+      }
+      
+      // ENSURE RETRY CONFIG EXISTS
+      if (!editingTask.retryConfig) {
+        editingTask.retryConfig = { maxRetries: 3, delayMS: 1000, backoffRate: 1.5 };
+      }
+      
+      // UPDATE AVAILABLE REFERENCES
+      updateAvailableReferences();
+      
+      // GET REQUIRED FIELDS
+      requiredFields = getRequiredFieldsForTaskType(editingTask.type);
     }
-    
-    onsave(editingTask);
-  }
-  
+  });
+
   // ADD INPUT REFERENCE
   function addInputRef(outputRef) {
     if (!editingTask.inputRefs) {
@@ -70,7 +87,7 @@
     }
     showAddInputModal = false;
   }
-  
+
   // REMOVE INPUT REFERENCE
   function removeInputRef() {
     if (inputToRemove && editingTask.inputRefs) {
@@ -79,7 +96,7 @@
     inputToRemove = null;
     showRemoveInputModal = false;
   }
-  
+
   // GET TASK AND SOURCE BY OUTPUT REFERENCE
   function getTaskByOutputRef(outputRef) {
     for (const task of allTasks) {
@@ -89,7 +106,7 @@
     }
     return null;
   }
-  
+
   // UPDATE AVAILABLE INPUTS AND OUTPUTS
   function updateAvailableReferences() {
     // Get all outputs from other tasks
@@ -112,49 +129,60 @@
         };
       });
   }
-  
+
+  // HANDLE CLOSE
+  function handleClose() {
+    onclose();
+  }
+
+  // HANDLE SAVE
+  function handleSave() {
+    // VALIDATE REQUIRED FIELDS
+    let valid = true;
+    let newValidation = {};
+    requiredFields.forEach(field => {
+      if (!editingTask.config[field] || editingTask.config[field] === '') {
+        newValidation[field] = 'This field is required';
+        valid = false;
+      }
+    });
+    
+    if (!valid) {
+      fieldValidation = newValidation;
+      return;
+    }
+    
+    onsave(editingTask);
+  }
+
   // GET REQUIRED FIELDS FOR THIS TASK TYPE
   function getRequiredFieldsForTaskType(taskType) {
     switch(taskType) {
-      case 'createBrowser':
-        return [];
-      case 'createPage':
-        return ['browserId'];
-      case 'disposeBrowser':
-        return ['browserId'];
-      case 'disposePage':
-        return ['pageId'];
-      case 'navigate':
-        return ['pageId', 'url'];
+      case 'createBrowser': return [];
+      case 'createPage': return ['browserId'];
+      case 'disposeBrowser': return ['browserId'];
+      case 'disposePage': return ['pageId'];
+      case 'navigate': return ['pageId', 'url'];
       case 'back':
       case 'forward':
       case 'reload':
-      case 'waitForLoad':
-        return ['pageId'];
+      case 'waitForLoad': return ['pageId'];
       case 'click':
       case 'type':
       case 'select':
-      case 'hover':
-        return ['pageId', 'selector'];
+      case 'hover': return ['pageId', 'selector'];
       case 'extractText':
-      case 'extractAttribute':
-        return ['pageId', 'selector'];
+      case 'extractAttribute': return ['pageId', 'selector'];
       case 'extractLinks':
-      case 'extractImages':
-        return ['pageId'];
-      case 'downloadAsset':
-        return ['url'];
-      case 'saveAsset':
-        return ['url', 'jobId'];
-      case 'wait':
-        return ['duration'];
-      case 'executeScript':
-        return ['pageId', 'script'];
-      default:
-        return [];
+      case 'extractImages': return ['pageId'];
+      case 'downloadAsset': return ['url'];
+      case 'saveAsset': return ['url', 'jobId'];
+      case 'wait': return ['duration'];
+      case 'executeScript': return ['pageId', 'script'];
+      default: return [];
     }
   }
-  
+
   // GENERATE CONFIG FIELDS FOR TASK TYPE
   function getConfigFieldsForTaskType(taskType) {
     switch(taskType) {
@@ -439,61 +467,7 @@
         return [];
     }
   }
-  
-  // INITIALIZE
-  $effect(() => {
-    if (isOpen && task) {
-      // CREATE A DEEP COPY TO AVOID DIRECT MODIFICATION
-      try {
-        editingTask = JSON.parse(JSON.stringify(task));
-      } catch (e) {
-        console.error("Error cloning task:", e);
-        editingTask = { ...task };
-      }
-      
-      // ENSURE CONFIG EXISTS
-      if (!editingTask.config) {
-        editingTask.config = {};
-      }
-      
-      // ENSURE INPUT REFS ARRAY EXISTS
-      if (!editingTask.inputRefs) {
-        editingTask.inputRefs = [];
-      }
-      
-      // ENSURE OUTPUT REF EXISTS
-      if (!editingTask.outputRef) {
-        editingTask.outputRef = `output_${Math.random().toString(36).substr(2, 9)}`;
-      }
-      
-      // ENSURE CONDITION EXISTS
-      if (!editingTask.condition) {
-        editingTask.condition = { type: "always", config: {} };
-      }
-      
-      // ENSURE RETRY CONFIG EXISTS
-      if (!editingTask.retryConfig) {
-        editingTask.retryConfig = { maxRetries: 3, delayMS: 1000, backoffRate: 1.5 };
-      }
-      
-      // UPDATE AVAILABLE REFERENCES
-      updateAvailableReferences();
-      
-      // GET REQUIRED FIELDS
-      requiredFields = getRequiredFieldsForTaskType(editingTask.type);
-    }
-  });
-  
-  // FETCH TASK INFO
-  function getTaskInfo(taskType) {
-    // THIS WOULD NORMALLY FETCH FROM THE TASK CATEGORIES
-    // IN A REAL IMPLEMENTATION WE'D IMPORT THE TASK CATEGORIES
-    return {
-      name: taskType.charAt(0).toUpperCase() + taskType.slice(1),
-      description: `Task type: ${taskType}`
-    };
-  }
-  
+
   // GET SOURCES FOR INPUT
   function getSourceName(inputRef) {
     const task = getTaskByOutputRef(inputRef);
@@ -501,417 +475,451 @@
   }
 </script>
 
-<Modal
-  title={`Configure Task: ${editingTask.name || 'Unnamed Task'}`}
-  size="lg"
-  isOpen={isOpen}
-  onclose={handleClose}
-  primaryAction="Save Task"
-  primaryVariant="primary"
-  secondaryAction="Cancel"
-  onprimaryAction={handleSave}
-  onsecondaryAction={handleClose}
->
-<div class="mb-4">
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-    <div>
-      <label for="task-name" class="block text-sm font-medium text-dark-300 mb-1">
-        Task Name <span class="text-danger-500">*</span>
-      </label>
-      <input
-        id="task-name"
-        type="text"
-        bind:value={editingTask.name}
-        placeholder="Enter task name"
-        class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500"
-      />
-    </div>
-    <div>
-      <label for="edit-task-type" class="block text-sm font-medium text-dark-300 mb-1">
-        Task Type
-      </label>
-      <div id="edit-task-type" class="px-3 py-2 bg-base-800 border border-dark-600 rounded-md">
-        {editingTask.type || "Unknown"}
+{#if isOpen}
+  <div class="modal modal-open fixed z-54 overflow-y-auto bg-black bg-opacity-50 flex items-center justify-center">
+    <div class="modal-box bg-base-200 z-53 rounded-lg shadow-xl w-full max-w-4xl">
+      <div class="flex justify-between items-center p-6 border-b border-base-300">
+        <h3 class="text-xl font-bold">Configure Task: {editingTask.name || 'Unnamed Task'}</h3>
+        <button 
+          class="btn btn-sm btn-circle" 
+          onclick={handleClose}
+          aria-label="Close modal"
+        >✕</button>
       </div>
-    </div>
-    <div class="md:col-span-2">
-      <label for="task-description" class="block text-sm font-medium text-dark-300 mb-1">
-        Description
-      </label>
-      <textarea
-        id="task-description"
-        bind:value={editingTask.description}
-        placeholder="Describe what this task does"
-        rows="2"
-        class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500"
-      ></textarea>
-    </div>
-  </div>
-  
-  <Tabs 
-    tabs={[
-      { id: 'config', label: 'Configuration', icon: Settings },
-      { id: 'inputs', label: 'Input Dependencies', icon: ArrowLeft },
-      { id: 'outputs', label: 'Outputs', icon: ArrowRight },
-      { id: 'condition', label: 'Execution Condition', icon: Filter },
-      { id: 'retry', label: 'Retry Behavior', icon: RefreshCw }
-    ]} 
-    activeTab={selectedTab}
-    onChange={({ tabId }) => { selectedTab = tabId; }}
-  >
-    <div data-tab="config" class="space-y-4">
-      <h3 class="text-md font-medium mb-3">Task Configuration</h3>
-      {#each getConfigFieldsForTaskType(editingTask.type || '') as field}
-        <div class="mb-4">
-          <label for={`field-${field.name}`} class="block text-sm font-medium text-dark-300 mb-1">
-            {field.label} {#if requiredFields.includes(field.name)} <span class="text-danger-500">*</span> {/if}
-          </label>
-          {#if field.type === 'text'}
+      
+      <div class="p-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+          <div class="form-control">
+            <label for="task-name" class="label">
+              <span class="label-text font-medium">Task Name <span class="text-error">*</span></span>
+            </label>
             <input
-              id={`field-${field.name}`}
+              id="task-name"
               type="text"
-              bind:value={editingTask.config[field.name]}
-              placeholder={`Enter ${field.label.toLowerCase()}`}
-              class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 {fieldValidation[field.name] ? 'border-danger-500' : ''}"
+              bind:value={editingTask.name}
+              placeholder="Enter task name"
+              class="input input-bordered w-full"
             />
-          {:else if field.type === 'number'}
+          </div>
+          <div class="form-control">
+            <label for="edit-task-type" class="label">
+              <span class="label-text font-medium">Task Type</span>
+            </label>
             <input
-              id={`field-${field.name}`}
-              type="number"
-              bind:value={editingTask.config[field.name]}
-              placeholder="0"
-              class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 {fieldValidation[field.name] ? 'border-danger-500' : ''}"
+              id="edit-task-type"
+              type="text"
+              value={editingTask.type || "Unknown"}
+              class="input input-bordered w-full"
+              readonly
             />
-          {:else if field.type === 'checkbox'}
-            <div class="flex items-center space-x-2">
-              <input 
-                id={`field-${field.name}`}
-                type="checkbox" 
-                bind:checked={editingTask.config[field.name]} 
-                class="h-4 w-4 text-primary-600 focus:ring-primary-500 rounded bg-base-700 border-dark-500"
-              />
-              <label for={`field-${field.name}`} class="text-sm text-dark-300">
-                {field.description}
-              </label>
-            </div>
-          {:else if field.type === 'select'}
-            <select
-              id={`field-${field.name}`}
-              bind:value={editingTask.config[field.name]}
-              class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 {fieldValidation[field.name] ? 'border-danger-500' : ''}"
-            >
-              <option value="">Select {field.label}</option>
-              {#each field.options as option}
-                <option value={option.value}>{option.label}</option>
-              {/each}
-            </select>
-          {:else if field.type === 'textarea'}
+          </div>
+          <div class="form-control md:col-span-2">
+            <label for="task-description" class="label">
+              <span class="label-text font-medium">Description</span>
+            </label>
             <textarea
-              id={`field-${field.name}`}
-              bind:value={editingTask.config[field.name]}
-              rows="4"
-              placeholder={`Enter ${field.label.toLowerCase()}`}
-              class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 {fieldValidation[field.name] ? 'border-danger-500' : ''}"
+              id="task-description"
+              bind:value={editingTask.description}
+              placeholder="Describe what this task does"
+              rows="2"
+              class="textarea textarea-bordered w-full"
             ></textarea>
-          {:else if field.type === 'json'}
-            {#if typeof editingTask.config[field.name] === 'object'}
-              <textarea
-                id={`field-${field.name}`}
-                bind:value={
-                    () => JSON.stringify(editingTask.config[field.name], null, 2),
-                    (val) => {
-                        editingTask.config[field.name] = JSON.stringify(val, null, 2);
-                    }
-                }
-                rows="4"
-                placeholder="Enter JSON"
-                class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 font-mono text-sm {fieldValidation[field.name] ? 'border-danger-500' : ''}"
-              ></textarea>
-            {:else}
-              <textarea
-                id={`field-${field.name}`}
-                bind:value={editingTask.config[field.name]}
-                rows="4"
-                placeholder="Enter JSON"
-                class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 font-mono text-sm {fieldValidation[field.name] ? 'border-danger-500' : ''}"
-              ></textarea>
-            {/if}
-          {:else if field.type === 'resource'}
-            <select
-              id={`field-${field.name}`}
-              bind:value={editingTask.config[field.name]}
-              class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 {fieldValidation[field.name] ? 'border-danger-500' : ''}"
-            >
-              <option value="">Select {field.resourceType}</option>
-              {#each availableOutputs.filter(output => {
-                // THIS IS A SIMPLIFICATION - IN REALITY, WE'D MATCH RESOURCE TYPES PROPERLY
-                if (field.resourceType === 'browser') return output.taskType === 'createBrowser';
-                if (field.resourceType === 'page') return output.taskType === 'createPage';
-                return true;
-              }) as output}
-                <option value={output.id}>{output.taskName} ({output.id})</option>
-              {/each}
-            </select>
-          {/if}
-          {#if fieldValidation[field.name]}
-            <p class="text-danger-500 text-xs mt-1">{fieldValidation[field.name]}</p>
-          {/if}
-          {#if field.description && field.type !== 'checkbox'}
-            <p class="text-dark-400 text-xs mt-1">{field.description}</p>
-          {/if}
-        </div>
-      {/each}
-      {#if getConfigFieldsForTaskType(editingTask.type || '').length === 0}
-        <p class="text-dark-400 italic">This task type doesn't require any configuration.</p>
-      {/if}
-    </div>
-    
-    <div data-tab="inputs" class="space-y-4">
-      <div class="flex justify-between items-center mb-3">
-        <h3 class="text-md font-medium">Input Dependencies</h3>
-        <Button 
-          variant="outline" 
-          size="sm" 
-          onclick={() => showAddInputModal = true}
-        >
-          <ArrowLeft class="h-4 w-4 mr-1" />
-          Add Input
-        </Button>
-      </div>
-      {#if availableInputs.length === 0}
-        <div class="bg-base-700 rounded-lg p-4 text-center">
-          <p class="text-dark-400">No input dependencies configured.</p>
-          <p class="text-xs text-dark-400 mt-1">
-            Connect inputs from other task outputs to use as input for this task.
-          </p>
-        </div>
-      {:else}
-        <div class="space-y-2">
-          {#each availableInputs as input}
-            <div class="bg-base-700 rounded-lg p-3 flex justify-between items-center">
-              <div>
-                <div class="flex items-center">
-                  <ArrowLeft class="h-4 w-4 mr-2 text-blue-400" />
-                  <span class="font-medium">{input.taskName}</span>
-                </div>
-                <div class="text-xs text-dark-400 mt-1">
-                  Source: {input.taskType} (ID: {input.id})
-                </div>
-              </div>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                onclick={() => {
-                  inputToRemove = input.id;
-                  showRemoveInputModal = true;
-                }}
-                class="text-danger-400 hover:text-danger-300"
-              >
-                Remove
-              </Button>
-            </div>
-          {/each}
-        </div>
-      {/if}
-    </div>
-    
-    <div data-tab="outputs" class="space-y-4">
-      <h3 class="text-md font-medium mb-3">Task Output</h3>
-      <div class="bg-base-700 rounded-lg p-4">
-        <div class="mb-3">
-          <label for="output-ref" class="block text-sm font-medium text-dark-300 mb-1">
-            Output Reference ID
-          </label>
-          <input
-            id="output-ref"
-            type="text"
-            bind:value={editingTask.outputRef}
-            placeholder="Auto-generated output ID"
-            class="w-full px-3 py-2 bg-base-800 border border-dark-600 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500"
-          />
-          <p class="text-dark-400 text-xs mt-1">
-            This ID will be used by other tasks to refer to this task's output.
-          </p>
-        </div>
-        <div>
-          <h4 class="text-sm font-medium text-dark-300 mb-1">Expected Output Type</h4>
-          <div class="bg-base-800 rounded-md p-2 text-sm">
-            {#if editingTask.type === 'extractText' || editingTask.type === 'extractAttribute'}
-              <span class="text-amber-400">string</span> or <span class="text-amber-400">array</span> (if multiple)
-            {:else if editingTask.type === 'extractLinks' || editingTask.type === 'extractImages' || editingTask.type === 'loop'}
-              <span class="text-amber-400">array</span>
-            {:else if editingTask.type === 'click' || editingTask.type === 'type' || editingTask.type === 'wait'}
-              <span class="text-amber-400">boolean</span>
-            {:else if editingTask.type === 'createBrowser' || editingTask.type === 'createPage'}
-              <span class="text-amber-400">object</span> (resource ID)
-            {:else if editingTask.type === 'downloadAsset' || editingTask.type === 'saveAsset'}
-              <span class="text-amber-400">object</span> (asset info)
-            {:else if editingTask.type === 'navigate'}
-              <span class="text-amber-400">object</span> (navigation result)
-            {:else if editingTask.type === 'executeScript'}
-              <span class="text-amber-400">any</span> (depends on script)
-            {:else if editingTask.type === 'conditional'}
-              <span class="text-amber-400">any</span> (depends on condition)
-            {:else}
-              <span class="text-amber-400">any</span>
-            {/if}
           </div>
         </div>
-      </div>
-    </div>
-    
-    <div data-tab="condition" class="space-y-4">
-      <h3 class="text-md font-medium mb-3">Execution Condition</h3>
-      <ConditionBuilder bind:condition={editingTask.condition} />
-      <div class="mt-2 p-3 bg-amber-900/20 border border-amber-900/30 rounded-md">
-        <h4 class="text-sm font-medium mb-1 flex items-center">
-          <Filter class="h-4 w-4 mr-1" />
-          About Conditions
-        </h4>
-        <p class="text-sm text-dark-300">
-          Task conditions determine whether this task will run during execution. 
-          If the condition evaluates to false, the task will be skipped.
-        </p>
-      </div>
-    </div>
-    
-    <div data-tab="retry" class="space-y-4">
-      <h3 class="text-md font-medium mb-3">Retry Configuration</h3>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label for="max-retries" class="block text-sm font-medium text-dark-300 mb-1">
-            Maximum Retries
-          </label>
-          <input
-            id="max-retries"
-            type="number"
-            min="0"
-            max="10"
-            bind:value={editingTask.retryConfig.maxRetries}
-            class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500"
-          />
-          <p class="text-dark-400 text-xs mt-1">
-            Number of times to retry the task if it fails. Set to 0 to disable retries.
-          </p>
+        
+        <div class="tabs tabs-boxed mb-6">
+          <button 
+            class={`tab ${selectedTab === 'config' ? 'tab-active' : ''}`}
+            onclick={() => selectedTab = 'config'}
+          >
+            <Settings class="h-4 w-4 mr-1" />
+            Configuration
+          </button>
+          <button 
+            class={`tab ${selectedTab === 'inputs' ? 'tab-active' : ''}`}
+            onclick={() => selectedTab = 'inputs'}
+          >
+            <ArrowLeft class="h-4 w-4 mr-1" />
+            Input Dependencies
+          </button>
+          <button 
+            class={`tab ${selectedTab === 'outputs' ? 'tab-active' : ''}`}
+            onclick={() => selectedTab = 'outputs'}
+          >
+            <ArrowRight class="h-4 w-4 mr-1" />
+            Outputs
+          </button>
+          <button 
+            class={`tab ${selectedTab === 'condition' ? 'tab-active' : ''}`}
+            onclick={() => selectedTab = 'condition'}
+          >
+            <Filter class="h-4 w-4 mr-1" />
+            Execution Condition
+          </button>
+          <button 
+            class={`tab ${selectedTab === 'retry' ? 'tab-active' : ''}`}
+            onclick={() => selectedTab = 'retry'}
+          >
+            <RefreshCw class="h-4 w-4 mr-1" />
+            Retry Behavior
+          </button>
         </div>
-        <div>
-          <label for="retry-delay" class="block text-sm font-medium text-dark-300 mb-1">
-            Initial Delay (ms)
-          </label>
-          <input
-            id="retry-delay"
-            type="number"
-            min="0"
-            bind:value={editingTask.retryConfig.delayMS}
-            class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500"
-          />
-          <p class="text-dark-400 text-xs mt-1">
-            Initial delay before first retry attempt (in milliseconds).
-          </p>
-        </div>
-        <div>
-          <label for="backoff-rate" class="block text-sm font-medium text-dark-300 mb-1">
-            Backoff Rate
-          </label>
-          <input
-            id="backoff-rate"
-            type="number"
-            min="1"
-            step="0.1"
-            bind:value={editingTask.retryConfig.backoffRate}
-            class="w-full px-3 py-2 bg-base-700 border border-dark-600 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500"
-          />
-          <p class="text-dark-400 text-xs mt-1">
-            Multiplier for delay between retry attempts (e.g., 1.5 means each retry waits 1.5x longer).
-          </p>
-        </div>
-      </div>
-      {#if editingTask.retryConfig && editingTask.retryConfig.maxRetries > 0}
-        <div class="mt-4 p-3 bg-base-700 rounded-md">
-          <h4 class="text-sm font-medium mb-2">Retry Schedule Preview</h4>
-          <div class="space-y-1 text-sm">
-            {#each Array(Math.min(editingTask.retryConfig.maxRetries, 5)).fill(0) as _, index}
-              {@const delay = editingTask.retryConfig.delayMS * Math.pow(editingTask.retryConfig.backoffRate, index)}
-              <div class="flex items-center">
-                <span class="w-20">Retry {index + 1}:</span>
-                <span class="text-primary-400">{delay.toFixed(0)} ms</span>
-                {#if index === 0}
-                  <span class="ml-2 text-xs text-dark-400">(initial delay)</span>
+        
+        <div class="bg-base-100 p-6 rounded-lg">
+          <!-- CONFIG TAB -->
+          {#if selectedTab === 'config'}
+            <h3 class="text-lg font-medium mb-6">Task Configuration</h3>
+            {#each getConfigFieldsForTaskType(editingTask.type || '') as field, fieldIndex}
+              <div class="form-control mb-6">
+                {#if field.type === 'checkbox'}
+                  <!-- Checkbox field -->
+                  <div class="flex items-center space-x-3 mt-1">
+                    <input 
+                      id={`field-${field.name}-${fieldIndex}`}
+                      type="checkbox" 
+                      bind:checked={editingTask.config[field.name]} 
+                      class="checkbox"
+                    />
+                    <label for={`field-${field.name}-${fieldIndex}`} class="label-text cursor-pointer">
+                      {field.label}
+                    </label>
+                  </div>
+                  {#if field.description}
+                    <div class="text-xs opacity-70 mt-1 ml-7">
+                      {field.description}
+                    </div>
+                  {/if}
+                {:else}
+                  <label for={`field-${field.name}-${fieldIndex}`} class="label">
+                    <span class="label-text font-medium">{field.label} {#if requiredFields.includes(field.name)}<span class="text-error">*</span>{/if}</span>
+                  </label>
+                  {#if field.type === 'text'}
+                    <input
+                      id={`field-${field.name}-${fieldIndex}`}
+                      type="text"
+                      bind:value={editingTask.config[field.name]}
+                      placeholder={`Enter ${field.label.toLowerCase()}`}
+                      class="input input-bordered w-full"
+                    />
+                  {:else if field.type === 'number'}
+                    <input
+                      id={`field-${field.name}-${fieldIndex}`}
+                      type="number"
+                      bind:value={editingTask.config[field.name]}
+                      placeholder="0"
+                      class="input input-bordered w-full"
+                    />
+                  {:else if field.type === 'select'}
+                    <select
+                      id={`field-${field.name}-${fieldIndex}`}
+                      bind:value={editingTask.config[field.name]}
+                      class="select select-bordered w-full"
+                    >
+                      <option value="">Select {field.label}</option>
+                      {#each field.options as option}
+                        <option value={option.value}>{option.label}</option>
+                      {/each}
+                    </select>
+                  {:else if field.type === 'textarea'}
+                    <textarea
+                      id={`field-${field.name}-${fieldIndex}`}
+                      bind:value={editingTask.config[field.name]}
+                      rows="4"
+                      placeholder={`Enter ${field.label.toLowerCase()}`}
+                      class="textarea textarea-bordered w-full"
+                    ></textarea>
+                  {:else if field.type === 'resource'}
+                    <select
+                      id={`field-${field.name}-${fieldIndex}`}
+                      bind:value={editingTask.config[field.name]}
+                      class="select select-bordered w-full"
+                    >
+                      <option value="">Select {field.resourceType}</option>
+                      {#each availableOutputs.filter(output => {
+                        if (field.resourceType === 'browser') return output.taskType === 'createBrowser';
+                        if (field.resourceType === 'page') return output.taskType === 'createPage';
+                        return true;
+                      }) as output}
+                        <option value={output.id}>{output.taskName} ({output.id})</option>
+                      {/each}
+                    </select>
+                  {/if}
+                  {#if fieldValidation[field.name]}
+                    <div class="mt-1 text-xs text-error">
+                      {fieldValidation[field.name]}
+                    </div>
+                  {/if}
+                  {#if field.description}
+                    <div class="label">
+                      <span class="label-text-alt text-xs opacity-70">
+                        {field.description}
+                      </span>
+                    </div>
+                  {/if}
                 {/if}
               </div>
             {/each}
-          </div>
+            {#if getConfigFieldsForTaskType(editingTask.type || '').length === 0}
+              <p class="text-base-content opacity-70 italic">This task type doesn't require any specific configuration.</p>
+            {/if}
+          {/if}
+          
+          <!-- INPUTS TAB -->
+          {#if selectedTab === 'inputs'}
+            <div class="flex justify-between items-center mb-6">
+              <h3 class="text-lg font-medium">Input Dependencies</h3>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onclick={() => showAddInputModal = true}
+              >
+                Add Input
+              </Button>
+            </div>
+            
+            {#if !availableInputs.length}
+              <div class="bg-base-200 rounded-lg p-6 text-center">
+                <p class="opacity-70">No input dependencies configured.</p>
+                <p class="text-xs opacity-60 mt-2">
+                  Connect inputs from other task outputs to use as input for this task.
+                </p>
+              </div>
+            {:else}
+              <div class="space-y-3">
+                {#each availableInputs as input}
+                  <div class="bg-base-200 rounded-lg p-4 flex justify-between items-center">
+                    <div>
+                      <div class="flex items-center">
+                        <ArrowLeft class="h-4 w-4 mr-2 text-primary" />
+                        <span class="font-medium">{input.taskName}</span>
+                      </div>
+                      <div class="text-xs text-base-content opacity-60 mt-1">
+                        Source: {input.taskType} (ID: {input.id})
+                      </div>
+                    </div>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onclick={() => {
+                        inputToRemove = input.id;
+                        showRemoveInputModal = true;
+                      }}
+                      class="text-error hover:text-error hover:bg-base-300"
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          {/if}
+          
+          <!-- OUTPUTS TAB -->
+          {#if selectedTab === 'outputs'}
+            <h3 class="text-lg font-medium mb-6">Task Output</h3>
+            <div class="bg-base-200 rounded-lg p-6">
+              <div class="mb-6 form-control">
+                <label for="output-ref" class="label">
+                  <span class="label-text font-medium">Output Reference ID</span>
+                </label>
+                <input
+                  id="output-ref"
+                  type="text"
+                  bind:value={editingTask.outputRef}
+                  placeholder="Auto-generated output ID"
+                  class="input input-bordered w-full"
+                />
+                <div class="label">
+                  <span class="label-text-alt text-xs opacity-70">
+                    This ID will be used by other tasks to refer to this task's output.
+                  </span>
+                </div>
+              </div>
+              
+              <div class="form-control">
+                <label for="output-type" class="label">
+                  <span class="label-text font-medium">Expected Output Type</span>
+                </label>
+                <div id="output-type" class="bg-base-300 rounded-md p-4 text-sm">
+                  {#if editingTask.type === 'extractText' || editingTask.type === 'extractAttribute'}
+                    <span class="text-warning">string</span> or <span class="text-warning">array</span> (if multiple)
+                  {:else if editingTask.type === 'extractLinks' || editingTask.type === 'extractImages' || editingTask.type === 'loop'}
+                    <span class="text-warning">array</span>
+                  {:else if editingTask.type === 'click' || editingTask.type === 'type' || editingTask.type === 'wait'}
+                    <span class="text-warning">boolean</span>
+                  {:else if editingTask.type === 'createBrowser' || editingTask.type === 'createPage'}
+                    <span class="text-warning">object</span> (resource ID)
+                  {:else if editingTask.type === 'downloadAsset' || editingTask.type === 'saveAsset'}
+                    <span class="text-warning">object</span> (asset info)
+                  {:else if editingTask.type === 'navigate'}
+                    <span class="text-warning">object</span> (navigation result)
+                  {:else if editingTask.type === 'executeScript'}
+                    <span class="text-warning">any</span> (depends on script)
+                  {:else if editingTask.type === 'conditional'}
+                    <span class="text-warning">any</span> (depends on condition)
+                  {:else}
+                    <span class="text-warning">any</span>
+                  {/if}
+                </div>
+              </div>
+            </div>
+          {/if}
+          
+          <!-- CONDITION TAB -->
+          {#if selectedTab === 'condition'}
+            <h3 class="text-lg font-medium mb-6">Execution Condition</h3>
+            <ConditionBuilder bind:condition={editingTask.condition} />
+            <div class="mt-6 p-4 bg-warning/10 border border-warning/30 rounded-md">
+              <h4 class="text-sm font-medium mb-2 flex items-center">
+                <Filter class="h-4 w-4 mr-1" />
+                About Conditions
+              </h4>
+              <p class="text-sm opacity-70">
+                Task conditions determine whether this task will run during execution. 
+                If the condition evaluates to false, the task will be skipped.
+              </p>
+            </div>
+          {/if}
+          
+          <!-- RETRY TAB -->
+          {#if selectedTab === 'retry'}
+            <h3 class="text-lg font-medium mb-6">Retry Configuration</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div class="form-control">
+                <label for="max-retries" class="label">
+                  <span class="label-text font-medium">Maximum Retries</span>
+                </label>
+                <input
+                  id="max-retries"
+                  type="number"
+                  min="0"
+                  max="10"
+                  bind:value={editingTask.retryConfig.maxRetries}
+                  class="input input-bordered w-full"
+                />
+                <div class="label">
+                  <span class="label-text-alt text-xs opacity-70">
+                    Number of times to retry the task if it fails. Set to 0 to disable retries.
+                  </span>
+                </div>
+              </div>
+              <div class="form-control">
+                <label for="retry-delay" class="label">
+                  <span class="label-text font-medium">Initial Delay (ms)</span>
+                </label>
+                <input
+                  id="retry-delay"
+                  type="number"
+                  min="0"
+                  bind:value={editingTask.retryConfig.delayMS}
+                  class="input input-bordered w-full"
+                />
+                <div class="label">
+                  <span class="label-text-alt text-xs opacity-70">
+                    Initial delay before first retry attempt (in milliseconds).
+                  </span>
+                </div>
+              </div>
+              <div class="form-control">
+                <label for="backoff-rate" class="label">
+                  <span class="label-text font-medium">Backoff Rate</span>
+                </label>
+                <input
+                  id="backoff-rate"
+                  type="number"
+                  min="1"
+                  step="0.1"
+                  bind:value={editingTask.retryConfig.backoffRate}
+                  class="input input-bordered w-full"
+                />
+                <div class="label">
+                  <span class="label-text-alt text-xs opacity-70">
+                    Multiplier for delay between retry attempts (e.g., 1.5 means each retry waits 1.5x longer).
+                  </span>
+                </div>
+              </div>
+            </div>
+          {/if}
         </div>
-      {/if}
+      </div>
+      
+      <div class="p-6 border-t border-base-300 flex justify-end space-x-3">
+        <Button variant="ghost" onclick={handleClose}>Cancel</Button>
+        <Button variant="primary" onclick={handleSave}>Save Task</Button>
+      </div>
     </div>
-  </Tabs>
-</div>
-</Modal>
-
-<!-- ADD INPUT MODAL -->
-{#if showAddInputModal}
-<Modal 
-  title="Add Input Dependency"
-  size="md"
-  isOpen={showAddInputModal}
-  onclose={() => showAddInputModal = false}
->
-  <div class="mb-4">
-    <p class="text-sm text-dark-300 mb-4">
-      Select an output from another task to use as input for this task.
-    </p>
-    {#if availableOutputs.length === 0}
-      <div class="bg-base-700 rounded-lg p-4 text-center">
-        <p class="text-dark-400">No available outputs found.</p>
-        <p class="text-xs text-dark-400 mt-1">
-          Create other tasks with outputs first, then connect them as inputs to this task.
-        </p>
-      </div>
-    {:else}
-      <div class="space-y-2 max-h-64 overflow-y-auto pr-2">
-        {#each availableOutputs as output}
-          <button
-            class="w-full bg-base-700 hover:bg-base-600 rounded-lg p-3 text-left transition-colors border border-transparent hover:border-primary-500"
-            onclick={() => addInputRef(output.id)}
-          >
-            <div class="flex items-center">
-              <ArrowLeft class="h-4 w-4 mr-2 text-blue-400" />
-              <span class="font-medium">{output.taskName}</span>
-            </div>
-            <div class="text-xs text-dark-400 mt-1">
-              Type: {output.taskType} (ID: {output.id})
-            </div>
-          </button>
-        {/each}
-      </div>
-    {/if}
   </div>
-  <div slot="footer" class="flex justify-end">
-    <Button variant="outline" onclick={() => showAddInputModal = false}>
-      Cancel
-    </Button>
-  </div>
-</Modal>
-{/if}
 
-<!-- REMOVE INPUT MODAL -->
-{#if showRemoveInputModal}
-<Modal 
-  title="Remove Input Dependency"
-  size="sm"
-  isOpen={showRemoveInputModal}
-  primaryAction="Remove"
-  primaryVariant="danger"
-  secondaryAction="Cancel"
-  onprimaryAction={removeInputRef}
-  onsecondaryAction={() => showRemoveInputModal = false}
->
-  <p class="text-sm text-dark-300">
-    Are you sure you want to remove the input dependency from 
-    <span class="font-medium">{getSourceName(inputToRemove)}</span>?
-  </p>
-  <p class="text-xs text-dark-400 mt-2">
-    This will disconnect this task from using that task's output as input.
-  </p>
-</Modal>
+  <!-- ADD INPUT MODAL -->
+  {#if showAddInputModal}
+    <div class="modal modal-open z-60 flex items-center justify-center p-4 bg-black bg-opacity-70">
+      <div class="modal-box bg-base-200 rounded-lg shadow-xl w-full max-w-xl">
+        <div class="p-6 border-b border-base-300">
+          <h3 class="font-bold text-lg mb-0">Add Input Dependency</h3>
+        </div>
+        
+        <div class="p-6">
+          <p class="mb-4 text-base-content opacity-70">
+            Select an output from another task to use as input for this task.
+          </p>
+          
+          {#if !availableOutputs.length}
+            <div class="bg-base-100 rounded-lg p-6 text-center">
+              <p class="text-base-content opacity-70">No available outputs found.</p>
+              <p class="text-xs text-base-content opacity-60 mt-2">
+                Create other tasks with outputs first, then connect them as inputs to this task.
+              </p>
+            </div>
+          {:else}
+            <div class="space-y-2 max-h-64 overflow-y-auto pr-2">
+              {#each availableOutputs as output}
+                <button
+                  class="w-full bg-base-100 hover:bg-base-300 rounded-lg p-4 text-left transition-colors border border-base-300 hover:border-primary"
+                  onclick={() => addInputRef(output.id)}
+                >
+                  <div class="flex items-center">
+                    <ArrowLeft class="h-4 w-4 mr-2 text-primary" />
+                    <span class="font-medium">{output.taskName}</span>
+                  </div>
+                  <div class="text-xs text-base-content opacity-60 mt-1">
+                    Type: {output.taskType} (ID: {output.id})
+                  </div>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+        
+        <div class="p-4 border-t border-base-300 flex justify-end">
+          <Button variant="ghost" onclick={() => showAddInputModal = false}>Cancel</Button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- REMOVE INPUT MODAL -->
+  {#if showRemoveInputModal}
+    <div class="modal modal-open fixed z-60 flex items-center justify-center p-4 bg-black bg-opacity-70">
+      <div class="modal-box bg-base-200 rounded-lg shadow-xl w-full max-w-md">
+        <div class="p-6 border-b border-base-300">
+          <h3 class="font-bold text-lg mb-0">Remove Input Dependency</h3>
+        </div>
+        
+        <div class="p-6">
+          <p class="text-base-content opacity-80">
+            Are you sure you want to remove the input dependency from 
+            <span class="font-medium">{getSourceName(inputToRemove)}</span>?
+          </p>
+          <p class="text-sm opacity-60 mt-2">
+            This will disconnect this task from using that task's output as input.
+          </p>
+        </div>
+        
+        <div class="p-4 border-t border-base-300 flex justify-end space-x-3">
+          <Button variant="ghost" onclick={() => showRemoveInputModal = false}>Cancel</Button>
+          <Button variant="error" onclick={removeInputRef}>Remove</Button>
+        </div>
+      </div>
+    </div>
+  {/if}
 {/if}
