@@ -3,7 +3,7 @@ export const state = $state({
   isSidebarOpen: false,
   toasts: [],
   activeModals: new Set(),
-  currentTheme: 'default'
+  theme: 'default'
 });
 
 // SIDEBAR TOGGLE
@@ -51,9 +51,8 @@ export function closeModal(modalId) {
 // APPLY A THEME
 export function applyTheme(theme) {
   // UPDATE THE STATE
-  state.currentTheme = theme;
+  state.theme = theme;
 
-  // SAVE TO LOCAL STORAGE
   if (typeof localStorage !== 'undefined') {
     localStorage.setItem('theme', theme);
   }
@@ -62,6 +61,8 @@ export function applyTheme(theme) {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('theme-changed', { detail: { theme } }));
   }
+
+  console.trace(`APPLIED THEME: ${state.theme}`);
 }
 
 // GET THEME FROM LOCAL STORAGE OR API
@@ -79,19 +80,19 @@ export async function initTheme() {
     // TRY TO FETCH FROM SETTINGS API
     try {
       const response = await fetch('/api/settings');
+      const body = await response.json();
+      console.log(JSON.stringify(body, 4, 2));
+      
       if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.data.userConfig && data.data.userConfig.theme) {
-          applyTheme(data.data.userConfig.theme);
+        const { data, success } = body;
+        if (success && data.userConfig && data.userConfig.theme) {
+          applyTheme(data.userConfig.theme);
         } else {
-          // FALLBACK TO DEFAULT THEME
-          applyTheme('default');
+          console.error('Theme change response error:', error);
         }
       }
     } catch (error) {
       console.error('Failed to load theme from API:', error);
-      // FALLBACK TO DEFAULT THEME
-      applyTheme('default');
     }
   }
 }

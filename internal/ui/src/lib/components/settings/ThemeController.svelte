@@ -5,7 +5,9 @@
   // HANDLE THEME CHANGE
   function handleThemeChange(e) {
     const newTheme = e.target.value;
-    if (newTheme !== uiState.currentTheme) {
+    console.log(`THEME CHANGING: ${uiState.theme} -> ${newTheme}`);
+    if (newTheme !== uiState.theme) {
+      uiState.theme = newTheme;
       applyTheme(newTheme);
     }
   }
@@ -19,7 +21,7 @@
       class="btn theme-controller join-item"
       aria-label={themeOption.label}
       value={themeOption.value}
-      checked={uiState.currentTheme === themeOption.value}
+      checked={uiState.theme === themeOption.value}
       onchange={handleThemeChange}
     />
   {/each}

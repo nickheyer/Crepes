@@ -3,10 +3,12 @@
     import Card from "$lib/components/common/Card.svelte";
     import Button from "$lib/components/common/Button.svelte";
     import ThemeController from "$lib/components/settings/ThemeController.svelte";
-    import { addToast, availableThemes } from "$lib/stores/uiStore.svelte";
+    import { addToast, availableThemes, state as uiState } from "$lib/stores/uiStore.svelte";
     import { settingsApi } from "$lib/utils/api";
 
-    const defaultSettings = {
+    let loading = $state(false);
+    let saving = $state(false);
+    let settings = $state({
         appConfig: {
             port: 8080,
             storagePath: "./storage",
@@ -16,16 +18,11 @@
             defaultTimeout: 5 * 60 * 1000, // 5 MINUTES IN MS
         },
         userConfig: {
-            theme: "default",
+            theme: uiState.theme,
             defaultView: "grid",
             notificationsEnabled: true
         }
-    };
-    
-    // LOCAL STATE
-    let loading = $state(false);
-    let saving = $state(false);
-    let settings = $state(defaultSettings);
+    });
     let storageInfo = $state({
         totalSpace: "0 B",
         usedSpace: "0 B",
@@ -75,12 +72,15 @@
     async function saveSettings() {
         saving = true;
         try {
+            
+            settings.userConfig.theme = uiState.theme;
             const response = await settingsApi.update(settings);
             if (response.success) {
                 addToast("SETTINGS SAVED SUCCESSFULLY", "success");
             } else {
                 throw new Error("FAILED TO SAVE SETTINGS");
             }
+
         } catch (error) {
             console.error("ERROR SAVING SETTINGS:", error);
             addToast("FAILED TO SAVE SETTINGS: " + error.message, "error");
@@ -104,8 +104,21 @@
     }
     
     function resetSettings() {
-        // RESET TO DEFAULT SETTINGS
-        settings = defaultSettings;
+        settings = {
+            appConfig: {
+                port: 8080,
+                storagePath: "./storage",
+                thumbnailsPath: "./thumbnails",
+                dataPath: "./data",
+                maxConcurrent: 5,
+                defaultTimeout: 5 * 60 * 1000, // 5 MINUTES IN MS
+            },
+            userConfig: {
+                theme: uiState.theme,
+                defaultView: "grid",
+                notificationsEnabled: true
+            }
+        };
         addToast("SETTINGS RESET TO DEFAULTS", "info");
     }
     
@@ -296,7 +309,6 @@
                                     <span class="label-text">App Theme</span>
                                 </label>
                                 <ThemeController bind:theme={settings.userConfig.theme} />
-                                <input id="theme" class="invisible" bind:value={settings.userConfig.theme}/>
                             </div>
                             
                             <div>

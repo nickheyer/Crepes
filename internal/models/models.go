@@ -55,18 +55,18 @@ type Filter struct {
 }
 
 type Stage struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Condition   Condition              `json:"condition"`
-	Parallelism ParallelismConfig      `json:"parallelism"`
-	Tasks       []Task                 `json:"tasks"`
-	Config      map[string]interface{} `json:"config"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Condition   Condition         `json:"condition"`
+	Parallelism ParallelismConfig `json:"parallelism"`
+	Tasks       []Task            `json:"tasks"`
+	Config      map[string]any    `json:"config"`
 }
 
 type Condition struct { // CONDITION DEFINES WHEN A STAGE OR TASK SHOULD EXECUTE
-	Type   string                 `json:"type"` // always, never, javascript, comparison
-	Config map[string]interface{} `json:"config"`
+	Type   string         `json:"type"` // always, never, javascript, comparison
+	Config map[string]any `json:"config"`
 }
 
 type ParallelismConfig struct { // PARALLELISM CONFIG DEFINES HOW TASKS ARE EXECUTED
@@ -75,14 +75,14 @@ type ParallelismConfig struct { // PARALLELISM CONFIG DEFINES HOW TASKS ARE EXEC
 }
 
 type Task struct { // TASK DEFINES A SINGLE OPERATION IN THE PIPELINE
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Type        string                 `json:"type"` // Type of task (navigate, click, extract, etc.)
-	Description string                 `json:"description"`
-	Config      map[string]interface{} `json:"config"`
-	InputRefs   []string               `json:"inputRefs"` // References to outputs from other tasks
-	Condition   Condition              `json:"condition"`
-	RetryConfig RetryConfig            `json:"retryConfig"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Type        string         `json:"type"` // Type of task (navigate, click, extract, etc.)
+	Description string         `json:"description"`
+	Config      map[string]any `json:"config"`
+	InputRefs   []string       `json:"inputRefs"` // References to outputs from other tasks
+	Condition   Condition      `json:"condition"`
+	RetryConfig RetryConfig    `json:"retryConfig"`
 }
 
 type RetryConfig struct { // RETRY CONFIG DEFINES HOW TASK RETRIES ARE HANDLED
@@ -125,18 +125,18 @@ type JobConfig struct { // JOB CONFIG PROVIDES DEFAULT SETTINGS FOR A JOB
 }
 
 type BrowserSettings struct {
-	Headless        bool                   `json:"headless"`
-	UserAgent       string                 `json:"userAgent"`
-	ViewportWidth   int                    `json:"viewportWidth"`
-	ViewportHeight  int                    `json:"viewportHeight"`
-	Locale          string                 `json:"locale"`
-	Timezone        string                 `json:"timezone"`
-	Cookies         []map[string]string    `json:"cookies"`
-	BrowserArgs     []string               `json:"browserArgs"`
-	DefaultTimeout  int                    `json:"defaultTimeout"`
-	ExtraSettings   map[string]interface{} `json:"extraSettings"`
-	RecordVideo     bool                   `json:"recordVideo"`
-	RecordSnapshots bool                   `json:"recordSnapshots"`
+	Headless        bool                `json:"headless"`
+	UserAgent       string              `json:"userAgent"`
+	ViewportWidth   int                 `json:"viewportWidth"`
+	ViewportHeight  int                 `json:"viewportHeight"`
+	Locale          string              `json:"locale"`
+	Timezone        string              `json:"timezone"`
+	Cookies         []map[string]string `json:"cookies"`
+	BrowserArgs     []string            `json:"browserArgs"`
+	DefaultTimeout  int                 `json:"defaultTimeout"`
+	ExtraSettings   map[string]any      `json:"extraSettings"`
+	RecordVideo     bool                `json:"recordVideo"`
+	RecordSnapshots bool                `json:"recordSnapshots"`
 }
 
 type ScraperSettings struct { // SCRAPER SETTINGS CONFIGURE GENERAL SCRAPER BEHAVIOR

@@ -27,13 +27,13 @@ var (
 )
 
 // HELPER FUNCTION TO GET PAGE FROM RESOURCE MANAGER
-func getPage(ctx *TaskContext, pageIdInput interface{}) (playwright.Page, error) {
+func getPage(ctx *TaskContext, pageIdInput any) (playwright.Page, error) {
 	var pageId string
 
 	switch id := pageIdInput.(type) {
 	case string:
 		pageId = id
-	case map[string]interface{}:
+	case map[string]any:
 		// HANDLE CASE WHERE PAGE ID IS NESTED IN JSON
 		if val, ok := id["pageId"].(string); ok {
 			pageId = val
@@ -59,13 +59,13 @@ func getPage(ctx *TaskContext, pageIdInput interface{}) (playwright.Page, error)
 }
 
 // HELPER FUNCTION TO GET BROWSER FROM RESOURCE MANAGER
-func getBrowser(ctx *TaskContext, browserIdInput interface{}) (playwright.Browser, error) {
+func getBrowser(ctx *TaskContext, browserIdInput any) (playwright.Browser, error) {
 	var browserId string
 
 	switch id := browserIdInput.(type) {
 	case string:
 		browserId = id
-	case map[string]interface{}:
+	case map[string]any:
 		// HANDLE CASE WHERE BROWSER ID IS NESTED IN JSON
 		if val, ok := id["browserId"].(string); ok {
 			browserId = val
@@ -132,12 +132,12 @@ func (t *CreateBrowserTask) GetOutputSchema() string {
 	return "object" // RETURNS BROWSER ID
 }
 
-func (t *CreateBrowserTask) ValidateConfig(config map[string]interface{}) error {
+func (t *CreateBrowserTask) ValidateConfig(config map[string]any) error {
 	// NO REQUIRED FIELDS
 	return nil
 }
 
-func (t *CreateBrowserTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *CreateBrowserTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET HEADLESS MODE FROM CONFIG (DEFAULT TRUE)
 	headless := true
 	if val, ok := config["headless"].(bool); ok {
@@ -163,7 +163,7 @@ func (t *CreateBrowserTask) Execute(ctx *TaskContext, config map[string]interfac
 	// RETURN BROWSER ID
 	return TaskData{
 		Type: "object",
-		Value: map[string]interface{}{
+		Value: map[string]any{
 			"browserId": browserId,
 		},
 	}, nil
@@ -186,14 +186,14 @@ func (t *CreatePageTask) GetOutputSchema() string {
 	return "object" // RETURNS PAGE ID
 }
 
-func (t *CreatePageTask) ValidateConfig(config map[string]interface{}) error {
+func (t *CreatePageTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["browserId"]; !ok {
 		return ErrMissingRequiredInput
 	}
 	return nil
 }
 
-func (t *CreatePageTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *CreatePageTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET BROWSER FROM RESOURCE MANAGER
 	browser, err := getBrowser(ctx, config["browserId"])
 	if err != nil {
@@ -211,7 +211,7 @@ func (t *CreatePageTask) Execute(ctx *TaskContext, config map[string]interface{}
 	}
 
 	// SET VIEWPORT IF PROVIDED
-	if viewport, ok := config["viewport"].(map[string]interface{}); ok {
+	if viewport, ok := config["viewport"].(map[string]any); ok {
 		width, hasWidth := viewport["width"].(float64)
 		height, hasHeight := viewport["height"].(float64)
 		if hasWidth && hasHeight {
@@ -253,7 +253,7 @@ func (t *CreatePageTask) Execute(ctx *TaskContext, config map[string]interface{}
 	// RETURN PAGE ID
 	return TaskData{
 		Type: "object",
-		Value: map[string]interface{}{
+		Value: map[string]any{
 			"pageId": pageId,
 		},
 	}, nil
@@ -272,14 +272,14 @@ func (t *DisposeBrowserTask) GetOutputSchema() string {
 	return "boolean" // RETURNS SUCCESS STATUS
 }
 
-func (t *DisposeBrowserTask) ValidateConfig(config map[string]interface{}) error {
+func (t *DisposeBrowserTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["browserId"]; !ok {
 		return ErrMissingRequiredInput
 	}
 	return nil
 }
 
-func (t *DisposeBrowserTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *DisposeBrowserTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET BROWSER FROM RESOURCE MANAGER
 	browser, err := getBrowser(ctx, config["browserId"])
 	if err != nil {
@@ -319,14 +319,14 @@ func (t *DisposePageTask) GetOutputSchema() string {
 	return "boolean" // RETURNS SUCCESS STATUS
 }
 
-func (t *DisposePageTask) ValidateConfig(config map[string]interface{}) error {
+func (t *DisposePageTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["pageId"]; !ok {
 		return ErrMissingRequiredInput
 	}
 	return nil
 }
 
-func (t *DisposePageTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *DisposePageTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET PAGE FROM RESOURCE MANAGER
 	page, err := getPage(ctx, config["pageId"])
 	if err != nil {
@@ -373,7 +373,7 @@ func (t *NavigateTask) GetOutputSchema() string {
 	return "object" // RETURNS NAVIGATION RESULT (STATUS, URL)
 }
 
-func (t *NavigateTask) ValidateConfig(config map[string]interface{}) error {
+func (t *NavigateTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["pageId"]; !ok {
 		return ErrMissingRequiredInput
 	}
@@ -383,7 +383,7 @@ func (t *NavigateTask) ValidateConfig(config map[string]interface{}) error {
 	return nil
 }
 
-func (t *NavigateTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *NavigateTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET PAGE FROM RESOURCE MANAGER
 	page, err := getPage(ctx, config["pageId"])
 	if err != nil {
@@ -436,7 +436,7 @@ func (t *NavigateTask) Execute(ctx *TaskContext, config map[string]interface{}) 
 	// RETURN NAVIGATION RESULT
 	return TaskData{
 		Type: "object",
-		Value: map[string]interface{}{
+		Value: map[string]any{
 			"status": status,
 			"url":    currentUrl,
 			"ok":     status >= 200 && status < 400,
@@ -459,14 +459,14 @@ func (t *BackTask) GetOutputSchema() string {
 	return "boolean" // RETURNS SUCCESS STATUS
 }
 
-func (t *BackTask) ValidateConfig(config map[string]interface{}) error {
+func (t *BackTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["pageId"]; !ok {
 		return ErrMissingRequiredInput
 	}
 	return nil
 }
 
-func (t *BackTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *BackTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET PAGE FROM RESOURCE MANAGER
 	page, err := getPage(ctx, config["pageId"])
 	if err != nil {
@@ -526,14 +526,14 @@ func (t *ForwardTask) GetOutputSchema() string {
 	return "boolean" // RETURNS SUCCESS STATUS
 }
 
-func (t *ForwardTask) ValidateConfig(config map[string]interface{}) error {
+func (t *ForwardTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["pageId"]; !ok {
 		return ErrMissingRequiredInput
 	}
 	return nil
 }
 
-func (t *ForwardTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *ForwardTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET PAGE FROM RESOURCE MANAGER
 	page, err := getPage(ctx, config["pageId"])
 	if err != nil {
@@ -593,14 +593,14 @@ func (t *ReloadTask) GetOutputSchema() string {
 	return "boolean" // RETURNS SUCCESS STATUS
 }
 
-func (t *ReloadTask) ValidateConfig(config map[string]interface{}) error {
+func (t *ReloadTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["pageId"]; !ok {
 		return ErrMissingRequiredInput
 	}
 	return nil
 }
 
-func (t *ReloadTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *ReloadTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET PAGE FROM RESOURCE MANAGER
 	page, err := getPage(ctx, config["pageId"])
 	if err != nil {
@@ -660,14 +660,14 @@ func (t *WaitForLoadTask) GetOutputSchema() string {
 	return "boolean" // RETURNS SUCCESS STATUS
 }
 
-func (t *WaitForLoadTask) ValidateConfig(config map[string]interface{}) error {
+func (t *WaitForLoadTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["pageId"]; !ok {
 		return ErrMissingRequiredInput
 	}
 	return nil
 }
 
-func (t *WaitForLoadTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *WaitForLoadTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET PAGE FROM RESOURCE MANAGER
 	page, err := getPage(ctx, config["pageId"])
 	if err != nil {
@@ -725,14 +725,14 @@ func (t *TakeScreenshotTask) GetOutputSchema() string {
 	return "object" // RETURNS SCREENSHOT DATA
 }
 
-func (t *TakeScreenshotTask) ValidateConfig(config map[string]interface{}) error {
+func (t *TakeScreenshotTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["pageId"]; !ok {
 		return ErrMissingRequiredInput
 	}
 	return nil
 }
 
-func (t *TakeScreenshotTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *TakeScreenshotTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET PAGE FROM RESOURCE MANAGER
 	page, err := getPage(ctx, config["pageId"])
 	if err != nil {
@@ -819,7 +819,7 @@ func (t *TakeScreenshotTask) Execute(ctx *TaskContext, config map[string]interfa
 	// RETURN SCREENSHOT DATA
 	return TaskData{
 		Type: "object",
-		Value: map[string]interface{}{
+		Value: map[string]any{
 			"path":      screenshotPath,
 			"type":      screenshotType,
 			"data":      base64Data,
@@ -844,7 +844,7 @@ func (t *ExecuteScriptTask) GetOutputSchema() string {
 	return "any" // RETURNS SCRIPT RESULT
 }
 
-func (t *ExecuteScriptTask) ValidateConfig(config map[string]interface{}) error {
+func (t *ExecuteScriptTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["pageId"]; !ok {
 		return ErrMissingRequiredInput
 	}
@@ -854,7 +854,7 @@ func (t *ExecuteScriptTask) ValidateConfig(config map[string]interface{}) error 
 	return nil
 }
 
-func (t *ExecuteScriptTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *ExecuteScriptTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET PAGE FROM RESOURCE MANAGER
 	page, err := getPage(ctx, config["pageId"])
 	if err != nil {
@@ -867,8 +867,8 @@ func (t *ExecuteScriptTask) Execute(ctx *TaskContext, config map[string]interfac
 	ctx.Logger.Printf("EXECUTING SCRIPT ON PAGE")
 
 	// PREPARE ARGUMENTS
-	var args []interface{}
-	if argsVal, ok := config["args"].([]interface{}); ok {
+	var args []any
+	if argsVal, ok := config["args"].([]any); ok {
 		args = argsVal
 	}
 
@@ -887,9 +887,9 @@ func (t *ExecuteScriptTask) Execute(ctx *TaskContext, config map[string]interfac
 		resultType = "number"
 	case bool:
 		resultType = "boolean"
-	case map[string]interface{}:
+	case map[string]any:
 		resultType = "object"
-	case []interface{}:
+	case []any:
 		resultType = "array"
 	case nil:
 		resultType = "null"
@@ -928,7 +928,7 @@ func (t *ClickTask) GetOutputSchema() string {
 	return "boolean" // RETURNS SUCCESS STATUS
 }
 
-func (t *ClickTask) ValidateConfig(config map[string]interface{}) error {
+func (t *ClickTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["pageId"]; !ok {
 		return ErrMissingRequiredInput
 	}
@@ -938,7 +938,7 @@ func (t *ClickTask) ValidateConfig(config map[string]interface{}) error {
 	return nil
 }
 
-func (t *ClickTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *ClickTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET PAGE FROM RESOURCE MANAGER
 	page, err := getPage(ctx, config["pageId"])
 	if err != nil {
@@ -1012,7 +1012,7 @@ func (t *TypeTask) GetOutputSchema() string {
 	return "boolean" // RETURNS SUCCESS STATUS
 }
 
-func (t *TypeTask) ValidateConfig(config map[string]interface{}) error {
+func (t *TypeTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["pageId"]; !ok {
 		return ErrMissingRequiredInput
 	}
@@ -1025,7 +1025,7 @@ func (t *TypeTask) ValidateConfig(config map[string]interface{}) error {
 	return nil
 }
 
-func (t *TypeTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *TypeTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET PAGE FROM RESOURCE MANAGER
 	page, err := getPage(ctx, config["pageId"])
 	if err != nil {
@@ -1129,7 +1129,7 @@ func (t *SelectTask) GetOutputSchema() string {
 	return "array" // RETURNS SELECTED VALUES
 }
 
-func (t *SelectTask) ValidateConfig(config map[string]interface{}) error {
+func (t *SelectTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["pageId"]; !ok {
 		return ErrMissingRequiredInput
 	}
@@ -1142,7 +1142,7 @@ func (t *SelectTask) ValidateConfig(config map[string]interface{}) error {
 	return nil
 }
 
-func (t *SelectTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *SelectTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET PAGE FROM RESOURCE MANAGER
 	page, err := getPage(ctx, config["pageId"])
 	if err != nil {
@@ -1151,7 +1151,7 @@ func (t *SelectTask) Execute(ctx *TaskContext, config map[string]interface{}) (T
 
 	// GET SELECTOR AND VALUES
 	selector, _ := config["selector"].(string)
-	valuesAny, _ := config["values"].([]interface{})
+	valuesAny, _ := config["values"].([]any)
 
 	// CONVERT VALUES TO STRINGS
 	values := make([]string, len(valuesAny))
@@ -1183,7 +1183,7 @@ func (t *SelectTask) Execute(ctx *TaskContext, config map[string]interface{}) (T
 	ctx.Logger.Printf("SELECTION PERFORMED SUCCESSFULLY")
 
 	// CONVERT SELECTED VALUES TO INTERFACE SLICE
-	selectedValues := make([]interface{}, len(selected))
+	selectedValues := make([]any, len(selected))
 	for i, v := range selected {
 		selectedValues[i] = v
 	}
@@ -1210,7 +1210,7 @@ func (t *HoverTask) GetOutputSchema() string {
 	return "boolean" // RETURNS SUCCESS STATUS
 }
 
-func (t *HoverTask) ValidateConfig(config map[string]interface{}) error {
+func (t *HoverTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["pageId"]; !ok {
 		return ErrMissingRequiredInput
 	}
@@ -1220,7 +1220,7 @@ func (t *HoverTask) ValidateConfig(config map[string]interface{}) error {
 	return nil
 }
 
-func (t *HoverTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *HoverTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET PAGE FROM RESOURCE MANAGER
 	page, err := getPage(ctx, config["pageId"])
 	if err != nil {
@@ -1241,7 +1241,7 @@ func (t *HoverTask) Execute(ctx *TaskContext, config map[string]interface{}) (Ta
 	}
 
 	// SET POSITION IF PROVIDED
-	if posObj, ok := config["position"].(map[string]interface{}); ok {
+	if posObj, ok := config["position"].(map[string]any); ok {
 		if x, xOk := posObj["x"].(float64); xOk {
 			if y, yOk := posObj["y"].(float64); yOk {
 				options.Position = &playwright.Position{
@@ -1284,14 +1284,14 @@ func (t *ScrollTask) GetOutputSchema() string {
 	return "boolean" // RETURNS SUCCESS STATUS
 }
 
-func (t *ScrollTask) ValidateConfig(config map[string]interface{}) error {
+func (t *ScrollTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["pageId"]; !ok {
 		return ErrMissingRequiredInput
 	}
 	return nil
 }
 
-func (t *ScrollTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *ScrollTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET PAGE FROM RESOURCE MANAGER
 	page, err := getPage(ctx, config["pageId"])
 	if err != nil {
@@ -1418,7 +1418,7 @@ func (t *ExtractTextTask) GetOutputSchema() string {
 	return "any" // RETURNS STRING OR ARRAY OF STRINGS
 }
 
-func (t *ExtractTextTask) ValidateConfig(config map[string]interface{}) error {
+func (t *ExtractTextTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["pageId"]; !ok {
 		return ErrMissingRequiredInput
 	}
@@ -1428,7 +1428,7 @@ func (t *ExtractTextTask) ValidateConfig(config map[string]interface{}) error {
 	return nil
 }
 
-func (t *ExtractTextTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *ExtractTextTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET PAGE FROM RESOURCE MANAGER
 	page, err := getPage(ctx, config["pageId"])
 	if err != nil {
@@ -1474,13 +1474,13 @@ func (t *ExtractTextTask) Execute(ctx *TaskContext, config map[string]interface{
 			return elements.map(el => trim ? el.textContent.trim() : el.textContent);
 		}`
 
-		result, err := page.Evaluate(script, []interface{}{selector, trim})
+		result, err := page.Evaluate(script, []any{selector, trim})
 		if err != nil {
 			return TaskData{}, fmt.Errorf("TEXT EXTRACTION FAILED: %v", err)
 		}
 
 		// CONVERT RESULT TO STRING ARRAY
-		textArray, ok := result.([]interface{})
+		textArray, ok := result.([]any)
 		if !ok {
 			return TaskData{}, fmt.Errorf("UNEXPECTED RESULT TYPE: %T", result)
 		}
@@ -1539,7 +1539,7 @@ func (t *ExtractAttributeTask) GetOutputSchema() string {
 	return "any" // RETURNS STRING OR ARRAY OF STRINGS
 }
 
-func (t *ExtractAttributeTask) ValidateConfig(config map[string]interface{}) error {
+func (t *ExtractAttributeTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["pageId"]; !ok {
 		return ErrMissingRequiredInput
 	}
@@ -1552,7 +1552,7 @@ func (t *ExtractAttributeTask) ValidateConfig(config map[string]interface{}) err
 	return nil
 }
 
-func (t *ExtractAttributeTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *ExtractAttributeTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET PAGE FROM RESOURCE MANAGER
 	page, err := getPage(ctx, config["pageId"])
 	if err != nil {
@@ -1592,13 +1592,13 @@ func (t *ExtractAttributeTask) Execute(ctx *TaskContext, config map[string]inter
 			return elements.map(el => el.getAttribute('%s') || '');
 		}`, attribute)
 
-		result, err := page.Evaluate(script, []interface{}{selector})
+		result, err := page.Evaluate(script, []any{selector})
 		if err != nil {
 			return TaskData{}, fmt.Errorf("ATTRIBUTE EXTRACTION FAILED: %v", err)
 		}
 
 		// CONVERT RESULT TO STRING ARRAY
-		attrArray, ok := result.([]interface{})
+		attrArray, ok := result.([]any)
 		if !ok {
 			return TaskData{}, fmt.Errorf("UNEXPECTED RESULT TYPE: %T", result)
 		}
@@ -1653,14 +1653,14 @@ func (t *ExtractLinksTask) GetOutputSchema() string {
 	return "array" // RETURNS ARRAY OF LINKS
 }
 
-func (t *ExtractLinksTask) ValidateConfig(config map[string]interface{}) error {
+func (t *ExtractLinksTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["pageId"]; !ok {
 		return ErrMissingRequiredInput
 	}
 	return nil
 }
 
-func (t *ExtractLinksTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *ExtractLinksTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET PAGE FROM RESOURCE MANAGER
 	page, err := getPage(ctx, config["pageId"])
 	if err != nil {
@@ -1736,13 +1736,13 @@ func (t *ExtractLinksTask) Execute(ctx *TaskContext, config map[string]interface
 	}
 
 	// EXECUTE SCRIPT TO EXTRACT LINKS
-	result, err := page.Evaluate(script, []interface{}{selector, baseUrl, normalizeUrls})
+	result, err := page.Evaluate(script, []any{selector, baseUrl, normalizeUrls})
 	if err != nil {
 		return TaskData{}, fmt.Errorf("LINK EXTRACTION FAILED: %v", err)
 	}
 
 	// PROCESS RESULTS
-	links, ok := result.([]interface{})
+	links, ok := result.([]any)
 	if !ok {
 		return TaskData{}, fmt.Errorf("UNEXPECTED RESULT TYPE: %T", result)
 	}
@@ -1775,14 +1775,14 @@ func (t *ExtractImagesTask) GetOutputSchema() string {
 	return "array" // RETURNS ARRAY OF IMAGES
 }
 
-func (t *ExtractImagesTask) ValidateConfig(config map[string]interface{}) error {
+func (t *ExtractImagesTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["pageId"]; !ok {
 		return ErrMissingRequiredInput
 	}
 	return nil
 }
 
-func (t *ExtractImagesTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *ExtractImagesTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET PAGE FROM RESOURCE MANAGER
 	page, err := getPage(ctx, config["pageId"])
 	if err != nil {
@@ -1864,22 +1864,22 @@ func (t *ExtractImagesTask) Execute(ctx *TaskContext, config map[string]interfac
 				const result = {
 					url: url ? (normalize ? new URL(url, baseUrl).href : url) : ''
 				};
-				
+
 				%s
-				
+
 				return result;
 			})
 			.filter(img => img.url);
 	}`, resultStruct)
 
 	// EXECUTE SCRIPT TO EXTRACT IMAGES
-	result, err := page.Evaluate(script, []interface{}{selector, baseUrl, normalizeUrls, minWidth, minHeight})
+	result, err := page.Evaluate(script, []any{selector, baseUrl, normalizeUrls, minWidth, minHeight})
 	if err != nil {
 		return TaskData{}, fmt.Errorf("IMAGE EXTRACTION FAILED: %v", err)
 	}
 
 	// PROCESS RESULTS
-	images, ok := result.([]interface{})
+	images, ok := result.([]any)
 	if !ok {
 		return TaskData{}, fmt.Errorf("UNEXPECTED RESULT TYPE: %T", result)
 	}
@@ -1913,14 +1913,14 @@ func (t *DownloadAssetTask) GetOutputSchema() string {
 	return "object" // RETURNS DOWNLOAD INFO
 }
 
-func (t *DownloadAssetTask) ValidateConfig(config map[string]interface{}) error {
+func (t *DownloadAssetTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["url"]; !ok {
 		return ErrMissingRequiredInput
 	}
 	return nil
 }
 
-func (t *DownloadAssetTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *DownloadAssetTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET URL TO DOWNLOAD
 	url, _ := config["url"].(string)
 
@@ -1989,7 +1989,7 @@ func (t *DownloadAssetTask) Execute(ctx *TaskContext, config map[string]interfac
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
 	// SET CUSTOM HEADERS IF PROVIDED
-	if headers, ok := config["headers"].(map[string]interface{}); ok {
+	if headers, ok := config["headers"].(map[string]any); ok {
 		for key, value := range headers {
 			if strValue, ok := value.(string); ok {
 				req.Header.Set(key, strValue)
@@ -2042,7 +2042,7 @@ func (t *DownloadAssetTask) Execute(ctx *TaskContext, config map[string]interfac
 	// RETURN DOWNLOAD INFO
 	return TaskData{
 		Type: "object",
-		Value: map[string]interface{}{
+		Value: map[string]any{
 			"url":         url,
 			"filePath":    filePath,
 			"size":        size,
@@ -2071,7 +2071,7 @@ func (t *SaveAssetTask) GetOutputSchema() string {
 	return "object" // RETURNS ASSET INFO
 }
 
-func (t *SaveAssetTask) ValidateConfig(config map[string]interface{}) error {
+func (t *SaveAssetTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["jobId"]; !ok {
 		return ErrMissingRequiredInput
 	}
@@ -2081,7 +2081,7 @@ func (t *SaveAssetTask) ValidateConfig(config map[string]interface{}) error {
 	return nil
 }
 
-func (t *SaveAssetTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *SaveAssetTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET REQUIRED FIELDS
 	jobId, _ := config["jobId"].(string)
 	url, _ := config["url"].(string)
@@ -2098,8 +2098,8 @@ func (t *SaveAssetTask) Execute(ctx *TaskContext, config map[string]interface{})
 	}
 
 	// GET ASSET INFO IF PROVIDED
-	var assetInfo map[string]interface{}
-	if ai, ok := config["assetInfo"].(map[string]interface{}); ok {
+	var assetInfo map[string]any
+	if ai, ok := config["assetInfo"].(map[string]any); ok {
 		assetInfo = ai
 	}
 
@@ -2203,7 +2203,7 @@ func (t *SaveAssetTask) Execute(ctx *TaskContext, config map[string]interface{})
 	// RETURN ASSET INFO
 	return TaskData{
 		Type: "object",
-		Value: map[string]interface{}{
+		Value: map[string]any{
 			"id":            asset.ID,
 			"url":           asset.URL,
 			"type":          asset.Type,
@@ -2235,14 +2235,14 @@ func (t *ConditionalTask) GetOutputSchema() string {
 	return "any" // RETURNS RESULT OF BRANCH EXECUTED
 }
 
-func (t *ConditionalTask) ValidateConfig(config map[string]interface{}) error {
+func (t *ConditionalTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["condition"]; !ok {
 		return ErrMissingRequiredInput
 	}
 	return nil
 }
 
-func (t *ConditionalTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *ConditionalTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET CONDITION VALUE
 	condition := false
 
@@ -2256,9 +2256,9 @@ func (t *ConditionalTask) Execute(ctx *TaskContext, config map[string]interface{
 		condition = c != 0
 	case int:
 		condition = c != 0
-	case map[string]interface{}:
+	case map[string]any:
 		condition = len(c) > 0
-	case []interface{}:
+	case []any:
 		condition = len(c) > 0
 	case nil:
 		condition = false
@@ -2284,9 +2284,9 @@ func (t *ConditionalTask) Execute(ctx *TaskContext, config map[string]interface{
 				valueType = "number"
 			case bool:
 				valueType = "boolean"
-			case map[string]interface{}:
+			case map[string]any:
 				valueType = "object"
-			case []interface{}:
+			case []any:
 				valueType = "array"
 			case nil:
 				valueType = "null"
@@ -2313,9 +2313,9 @@ func (t *ConditionalTask) Execute(ctx *TaskContext, config map[string]interface{
 				valueType = "number"
 			case bool:
 				valueType = "boolean"
-			case map[string]interface{}:
+			case map[string]any:
 				valueType = "object"
-			case []interface{}:
+			case []any:
 				valueType = "array"
 			case nil:
 				valueType = "null"
@@ -2354,16 +2354,16 @@ func (t *LoopTask) GetOutputSchema() string {
 	return "array" // RETURNS PROCESSED ARRAY
 }
 
-func (t *LoopTask) ValidateConfig(config map[string]interface{}) error {
+func (t *LoopTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["items"]; !ok {
 		return ErrMissingRequiredInput
 	}
 	return nil
 }
 
-func (t *LoopTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *LoopTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET ITEMS ARRAY
-	itemsAny, ok := config["items"].([]interface{})
+	itemsAny, ok := config["items"].([]any)
 	if !ok {
 		return TaskData{}, fmt.Errorf("ITEMS MUST BE AN ARRAY")
 	}
@@ -2395,7 +2395,7 @@ func (t *LoopTask) Execute(ctx *TaskContext, config map[string]interface{}) (Tas
 		ctx.Logger.Printf("APPLYING REDUCE FUNCTION")
 
 		// GET INITIAL VALUE
-		initialValue := interface{}(nil)
+		initialValue := any(nil)
 		if iv, ok := config["initialValue"]; ok {
 			initialValue = iv
 		}
@@ -2416,9 +2416,9 @@ func (t *LoopTask) Execute(ctx *TaskContext, config map[string]interface{}) (Tas
 					valueType = "number"
 				case bool:
 					valueType = "boolean"
-				case map[string]interface{}:
+				case map[string]any:
 					valueType = "object"
-				case []interface{}:
+				case []any:
 					valueType = "array"
 				case nil:
 					valueType = "null"
@@ -2454,14 +2454,14 @@ func (t *WaitTask) GetOutputSchema() string {
 	return "boolean" // RETURNS SUCCESS STATUS
 }
 
-func (t *WaitTask) ValidateConfig(config map[string]interface{}) error {
+func (t *WaitTask) ValidateConfig(config map[string]any) error {
 	if _, ok := config["duration"]; !ok {
 		return ErrMissingRequiredInput
 	}
 	return nil
 }
 
-func (t *WaitTask) Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error) {
+func (t *WaitTask) Execute(ctx *TaskContext, config map[string]any) (TaskData, error) {
 	// GET DURATION
 	duration := float64(1000) // DEFAULT 1 SECOND
 	if d, ok := config["duration"].(float64); ok && d > 0 {

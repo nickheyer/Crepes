@@ -66,24 +66,24 @@ type browserInstance struct {
 // RESOURCE MANAGER HANDLES JOB RESOURCES
 type ResourceManager struct {
 	mu        sync.Mutex
-	resources map[string]map[string]interface{} // Job ID -> Resource ID -> Resource
+	resources map[string]map[string]any // Job ID -> Resource ID -> Resource
 }
 
 // NEW RESOURCE MANAGER
 func NewResourceManager() *ResourceManager {
 	return &ResourceManager{
-		resources: make(map[string]map[string]interface{}),
+		resources: make(map[string]map[string]any),
 	}
 }
 
 // CREATE A RESOURCE
-func (rm *ResourceManager) CreateResource(jobID, resourceID, resourceType string, value interface{}) {
+func (rm *ResourceManager) CreateResource(jobID, resourceID, resourceType string, value any) {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 
 	// INITIALIZE JOB RESOURCES MAP IF NOT EXISTS
 	if _, ok := rm.resources[jobID]; !ok {
-		rm.resources[jobID] = make(map[string]interface{})
+		rm.resources[jobID] = make(map[string]any)
 	}
 
 	// STORE THE RESOURCE
@@ -91,7 +91,7 @@ func (rm *ResourceManager) CreateResource(jobID, resourceID, resourceType string
 }
 
 // GET A RESOURCE
-func (rm *ResourceManager) GetResource(jobID, resourceID string) (interface{}, bool) {
+func (rm *ResourceManager) GetResource(jobID, resourceID string) (any, bool) {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()
 
@@ -132,8 +132,8 @@ func (rm *ResourceManager) DeleteJobResources(jobID string) {
 
 // TASK DATA FOR INPUT/OUTPUT
 type TaskData struct {
-	Type  string      `json:"type"` // "string", "number", "boolean", "object", "array", "null"
-	Value interface{} `json:"value"`
+	Type  string `json:"type"` // "string", "number", "boolean", "object", "array", "null"
+	Value any    `json:"value"`
 }
 
 // TASK CONTEXT PASSED TO TASK IMPLEMENTATION
@@ -148,8 +148,8 @@ type TaskContext struct {
 
 // TASK IMPLEMENTATION INTERFACE
 type TaskImplementation interface {
-	Execute(ctx *TaskContext, config map[string]interface{}) (TaskData, error)
-	ValidateConfig(config map[string]interface{}) error
+	Execute(ctx *TaskContext, config map[string]any) (TaskData, error)
+	ValidateConfig(config map[string]any) error
 	GetInputSchema() map[string]string
 	GetOutputSchema() string
 }
@@ -774,7 +774,7 @@ func (e *Engine) executeWorkerPerItemTasks(ctx context.Context, jobID string, jo
 	itemsData := e.jobProgress[jobID].TaskResults[itemSourceID]
 	e.mu.Unlock()
 
-	items, ok := itemsData.Value.([]interface{})
+	items, ok := itemsData.Value.([]any)
 	if !ok {
 		err := fmt.Errorf("INVALID ITEM SOURCE DATA TYPE")
 		logger.Printf("%v", err)
@@ -803,7 +803,7 @@ func (e *Engine) executeWorkerPerItemTasks(ctx context.Context, jobID string, jo
 	// CREATE ITEM QUEUE
 	type queueItem struct {
 		index int
-		item  interface{}
+		item  any
 	}
 	itemQueue := make(chan queueItem, len(items))
 
@@ -845,7 +845,7 @@ func (e *Engine) executeWorkerPerItemTasks(ctx context.Context, jobID string, jo
 					e.mu.Unlock()
 
 					// REPLACE THE ARRAY INPUT WITH THE SINGLE ITEM INPUT
-					taskInputs := make(map[string]interface{})
+					taskInputs := make(map[string]any)
 					for _, inputRef := range taskCopy.InputRefs {
 						if inputRef == itemSourceID {
 							taskInputs["item"] = qItem.item
@@ -912,7 +912,7 @@ func (e *Engine) executeWorkerPerItemTasks(ctx context.Context, jobID string, jo
 	}()
 
 	// COLLECT RESULTS
-	results := make([]interface{}, len(items))
+	results := make([]any, len(items))
 	resultCollector := make(chan struct{})
 
 	go func() {
@@ -952,8 +952,8 @@ func (e *Engine) executeWorkerPerItemTasks(ctx context.Context, jobID string, jo
 }
 
 // PREPARE TASK INPUTS
-func (e *Engine) prepareTaskInputs(jobID string, task models.Task) (map[string]interface{}, error) {
-	inputs := make(map[string]interface{})
+func (e *Engine) prepareTaskInputs(jobID string, task models.Task) (map[string]any, error) {
+	inputs := make(map[string]any)
 
 	// GET TASK IMPLEMENTATION
 	taskImpl, err := e.taskRegistry.GetTask(task.Type)
@@ -999,7 +999,7 @@ func (e *Engine) prepareTaskInputs(jobID string, task models.Task) (map[string]i
 }
 
 // EXECUTE A SINGLE TASK
-func (e *Engine) executeTask(ctx context.Context, jobID string, task models.Task, inputs map[string]interface{}, logger *log.Logger) (TaskData, error) {
+func (e *Engine) executeTask(ctx context.Context, jobID string, task models.Task, inputs map[string]any, logger *log.Logger) (TaskData, error) {
 	// GET TASK IMPLEMENTATION
 	taskImpl, err := e.taskRegistry.GetTask(task.Type)
 	if err != nil {
@@ -1012,7 +1012,7 @@ func (e *Engine) executeTask(ctx context.Context, jobID string, task models.Task
 	}
 
 	// MERGE INPUTS WITH CONFIG
-	config := make(map[string]interface{})
+	config := make(map[string]any)
 	for k, v := range task.Config {
 		config[k] = v
 	}
@@ -1035,7 +1035,7 @@ func (e *Engine) executeTask(ctx context.Context, jobID string, task models.Task
 }
 
 // RETRY A FAILED TASK
-func (e *Engine) retryTask(ctx context.Context, jobID string, task models.Task, inputs map[string]interface{}, logger *log.Logger) (TaskData, error) {
+func (e *Engine) retryTask(ctx context.Context, jobID string, task models.Task, inputs map[string]any, logger *log.Logger) (TaskData, error) {
 	maxRetries := task.RetryConfig.MaxRetries
 	delayMS := task.RetryConfig.DelayMS
 	backoffRate := task.RetryConfig.BackoffRate

@@ -49,7 +49,7 @@
   });
 </script>
 
-<div id="theme-wrapper" data-theme={uiState.currentTheme}>
+<div id="theme-wrapper" data-theme={uiState.theme}>
   <div class="drawer lg:drawer-open min-h-screen bg-base-300">
     <input id="main-drawer" type="checkbox" class="drawer-toggle" />
     <div class="drawer-content flex flex-col">
